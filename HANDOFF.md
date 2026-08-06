@@ -4,9 +4,9 @@
 `README.md` describes the project itself. Do not re-derive what the files already say — open them.
 
 Repo: https://github.com/az9713/agent-plugins-spec-tutorial (public)
-Site: https://az9713.github.io/agent-plugins-spec-tutorial/ (**not live yet — see Next task**)
+Site: https://az9713.github.io/agent-plugins-spec-tutorial/ (**live**)
 
-## Current state (as of 2026-08-06, commit `5c5f31c`)
+## Current state (as of 2026-08-06, commit `6b1af03`)
 
 Everything is committed and pushed to `main`. Local `HEAD` matches `origin/main`. The working tree is clean.
 
@@ -27,36 +27,38 @@ Done and verified:
 - **4 light-theme screenshots** in `assets/screenshots/`, wired into `README.md` as a clickable
   2x2 grid. The images serve correctly (HTTP 200 from `raw.githubusercontent.com`). Landed in `b9ccf92`.
 
+- **The site is deployed and live.** Run 31129025363 (`Deploy tutorial to GitHub Pages`) finished
+  `success` at about 22:30 UTC on 2026-08-06, after the earlier GitHub Actions outage recovered.
+  The three failed runs and the stuck `waiting` run 31126763438 were the outage, not this repo;
+  31126763438 was cancelled to free the `pages` concurrency group before the new dispatch.
+- **All 10 live URLs return HTTP 200**: the 4 pages, the 4 screenshot JPEGs, `assets/style.css`,
+  and `assets/tutorial.js`. The served `index.html` is 11222 bytes with the correct `<title>`.
+  Every destination behind the README screenshot grid is one of those 4 verified page URLs.
+
 ## Next task
 
-**Deploy GitHub Pages, then verify the 4 screenshot links no longer 404.**
+**Nothing is pending.** The tutorial is written, committed, deployed, and verified.
 
-The site is blocked by a GitHub-side outage, not by this repo:
+Possible follow-ups, in the order of value. None is started:
 
-- GitHub status at 19:42 UTC on 2026-08-06: `Actions = major_outage`, `Pages = major_outage`.
-  Incident "Incident with Actions" opened 2026-08-06T15:22:49Z.
-- Three deploy runs failed the same way: `The job was not acquired by Runner of type hosted`.
-  The `build` job succeeded each time and produced the `github-pages` artifact; only `deploy` never
-  got a machine. Run 31126763438 may still be stuck in `waiting` and holds the `pages`
-  concurrency group.
-- Not a billing or settings problem: `actions/permissions` is `enabled: true, allowed_actions: all`,
-  and other repos on this account (`agent-workflows`, `gpu-bio-lab`) had successful runs hours earlier.
+1. Track the specification. If `agent-plugins-spec` publishes a version after 1.0.0, compare it
+   against the field tables in `reference.html` and the rules in the other 3 pages.
+2. Add a link check to CI. `.github/workflows/pages.yml` deploys but does not test.
+3. Add dark-theme screenshots. `assets/screenshots/` holds light-theme images only.
 
-Steps when Actions and Pages both read `operational` at https://www.githubstatus.com:
+Re-deploy at any time with `gh workflow run pages.yml -R az9713/agent-plugins-spec-tutorial`.
+After a deploy, verify with:
 
-1. Cancel any run stuck in `waiting`:
-   `gh run list -R az9713/agent-plugins-spec-tutorial --status waiting --json databaseId --jq '.[].databaseId'`
-   then `gh run cancel <id> -R az9713/agent-plugins-spec-tutorial`
-2. `gh workflow run pages.yml -R az9713/agent-plugins-spec-tutorial`
-3. Wait for the run, then verify — **check the link destinations, not only the assets**:
-   ```
-   for u in "" plugin-authors.html client-implementers.html reference.html assets/screenshots/index.jpg; do
-     curl -s -o /dev/null -w "$u %{http_code}\n" "https://az9713.github.io/agent-plugins-spec-tutorial/$u"
-   done
-   ```
-   All five must return 200. No file change is needed — the README links already point at the right URLs.
+```
+B=https://az9713.github.io/agent-plugins-spec-tutorial
+for u in "" plugin-authors.html client-implementers.html reference.html \
+         assets/screenshots/index.jpg assets/screenshots/plugin-authors.jpg \
+         assets/screenshots/client-implementers.jpg assets/screenshots/reference.jpg; do
+  curl -sL -o /dev/null -w "$u %{http_code}\n" "$B/$u"
+done
+```
 
-No source edit is pending. The only open item is the deploy.
+All 8 must return 200.
 
 ## Where to read things
 
@@ -67,11 +69,7 @@ No source edit is pending. The only open item is the deploy.
 
 ## Session-transient scratch (regenerate if needed)
 
-- `<scratchpad>/pages-watch.sh` — polls githubstatus.com every 5 minutes until Actions and Pages
-  are both `operational`, cancels the stuck run, dispatches `pages.yml`, waits for it, then curls the
-  5 URLs into `pages-watch.log`. Hard deadline 6 hours (01:42 UTC on 2026-08-07).
-  It was running as background task `bqiddwddw`, which **does not survive a session clear** —
-  assume it is dead and run the three steps under "Next task" by hand.
+- `<scratchpad>/pages-watch.sh` — the outage poller. It is obsolete: the deploy is done. Delete it.
 - `example/client/node_modules/` and `dist/` are gitignored. Rebuild with `npm install && npm test`.
 - `example/.plugin-data/` is gitignored. Either reference client recreates it.
 
