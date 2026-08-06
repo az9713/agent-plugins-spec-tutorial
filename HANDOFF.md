@@ -6,9 +6,10 @@
 Repo: https://github.com/az9713/agent-plugins-spec-tutorial (public)
 Site: https://az9713.github.io/agent-plugins-spec-tutorial/ (**live**)
 
-## Current state (as of 2026-08-06, commit `87d36f2`)
+## Current state (as of 2026-08-06, content commit `05f25e7`)
 
-Everything is committed and pushed to `main`. Local `HEAD` matches `origin/main`. The working tree is clean.
+Everything is committed and pushed to `main`. Local `HEAD` matches `origin/main`, and the deployed
+commit matches both. The working tree is clean. Nothing is in flight.
 
 Done and verified:
 
@@ -70,18 +71,23 @@ Possible follow-ups, in the order of value. None is started:
    no screenshot for the 2 new pages.
 
 Re-deploy at any time with `gh workflow run pages.yml -R az9713/agent-plugins-spec-tutorial`.
-After a deploy, verify with:
+After a deploy, run these two checks in order. The second one is the important one.
 
-```
+```bash
+# 1. The newest deployment must hold the newest commit. A green run is not proof.
+echo "HEAD=$(git rev-parse --short HEAD) deployed=$(gh api \
+  repos/az9713/agent-plugins-spec-tutorial/deployments --jq '.[0].sha[0:7]')"
+
+# 2. All 12 URLs must return 200.
 B=https://az9713.github.io/agent-plugins-spec-tutorial
-for u in "" plugin-authors.html client-implementers.html reference.html          implementation.html e2e-tests.html \
+for u in "" plugin-authors.html client-implementers.html reference.html \
+         implementation.html e2e-tests.html \
          assets/screenshots/index.jpg assets/screenshots/plugin-authors.jpg \
-         assets/screenshots/client-implementers.jpg assets/screenshots/reference.jpg; do
+         assets/screenshots/client-implementers.jpg assets/screenshots/reference.jpg \
+         assets/style.css assets/tutorial.js; do
   curl -sL -o /dev/null -w "$u %{http_code}\n" "$B/$u"
 done
 ```
-
-All 10 must return 200.
 
 ## Where to read things
 
@@ -94,8 +100,11 @@ All 10 must return 200.
 
 ## Session-transient scratch (regenerate if needed)
 
+- Nothing is pending in a scratchpad. The old `pages-watch.sh` outage poller is deleted and obsolete.
 - `example/client/node_modules/` and `dist/` are gitignored. Rebuild with `npm install && npm test`.
-- `example/.plugin-data/` is gitignored. Either reference client recreates it.
+- `example/.plugin-data/` is gitignored. Either reference client recreates it, and so does `e2e.py`.
+- To capture the check list for a document, run
+  `python example/e2e.py --quiet > out.txt` and read `out.txt`. Do not hand-copy the 59 labels.
 
 ## How to work here
 
