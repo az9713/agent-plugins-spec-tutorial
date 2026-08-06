@@ -10,6 +10,14 @@ governs.
 
 **Read it here: https://az9713.github.io/agent-plugins-spec-tutorial/**
 
+Or read it locally — the pages need no build step and no network:
+
+```bash
+git clone https://github.com/az9713/agent-plugins-spec-tutorial
+cd agent-plugins-spec-tutorial
+python -m http.server 8899        # then open http://127.0.0.1:8899/
+```
+
 ## The pages
 
 Click any screenshot to open that page.
