@@ -6,7 +6,7 @@
 Repo: https://github.com/az9713/agent-plugins-spec-tutorial (public)
 Site: https://az9713.github.io/agent-plugins-spec-tutorial/ (**live**)
 
-## Current state (as of 2026-08-06, commit `6b1af03`)
+## Current state (as of 2026-08-06, commit `fe3acce`)
 
 Everything is committed and pushed to `main`. Local `HEAD` matches `origin/main`. The working tree is clean.
 
@@ -32,18 +32,32 @@ Done and verified:
   The three failed runs and the stuck `waiting` run 31126763438 were the outage, not this repo;
   31126763438 was cancelled to free the `pages` concurrency group before the new dispatch.
 - **All 10 live URLs return HTTP 200**: the 4 pages, the 4 screenshot JPEGs, `assets/style.css`,
-  and `assets/tutorial.js`. The served `index.html` is 11222 bytes with the correct `<title>`.
-  Every destination behind the README screenshot grid is one of those 4 verified page URLs.
+  and `assets/tutorial.js`. Every destination behind the README screenshot grid is one of those
+  4 verified page URLs. The served `index.html` is 11887 bytes and names `e2e.py` twice, which is
+  how you confirm the newest content is live and not a cached older deploy.
+- **`example/e2e.py` — the end-to-end demonstration. 59 checks, exit code 0.** Landed in `fe3acce`.
+  Run it with `python example/e2e.py` (add `--quiet` to hide the MCP transcript). Part A loads the
+  plugin with the reference client, launches `bin/notes_server.py` from the client's own launch
+  plan, and speaks MCP to it. Part B compares every code block on the 4 HTML pages with the files
+  in `example/`. A mutation test proved it fails when reality drifts: change `${PLUGIN_DATA}` to
+  `${PLUGIN_ROOT}` in `mcp.json` and 4 checks turn red and the exit code becomes 1.
+
+**Deploy trap, learned the hard way.** `pages.yml` also triggers `on: push`. Three pushes in a row
+queued three runs, and the run that finished last deployed the *oldest* of the three commits. The
+site then served stale content while every URL still returned 200. After a group of pushes, dispatch
+`pages.yml` once by hand and confirm with `gh api repos/az9713/agent-plugins-spec-tutorial/deployments
+--jq '.[0].sha'` that the newest deployment holds the newest commit.
 
 ## Next task
 
-**Nothing is pending.** The tutorial is written, committed, deployed, and verified.
+**Nothing is pending.** The tutorial is written, committed, deployed, demonstrated, and verified.
 
 Possible follow-ups, in the order of value. None is started:
 
 1. Track the specification. If `agent-plugins-spec` publishes a version after 1.0.0, compare it
    against the field tables in `reference.html` and the rules in the other 3 pages.
-2. Add a link check to CI. `.github/workflows/pages.yml` deploys but does not test.
+2. Run `example/e2e.py` in CI. It already exits non-zero on a failure, so a small workflow that
+   calls it turns doc drift into a red build. `.github/workflows/pages.yml` deploys but does not test.
 3. Add dark-theme screenshots. `assets/screenshots/` holds light-theme images only.
 
 Re-deploy at any time with `gh workflow run pages.yml -R az9713/agent-plugins-spec-tutorial`.
@@ -62,7 +76,9 @@ All 8 must return 200.
 
 ## Where to read things
 
-- `README.md` — what the project is, the page map, how to run both reference clients.
+- `README.md` — what the project is, the page map, how to run both reference clients and `e2e.py`.
+- `example/e2e.py` — the one command that proves the whole tutorial works. Run it after any edit
+  to a page, to a manifest, or to a loader.
 - `.github/workflows/pages.yml` — the Actions deploy (uploads the repo root, `actions/deploy-pages@v4`).
 - `../agent-plugins-spec/spec/1.0.0.md` — the canonical specification, if that clone still exists.
   Otherwise: https://github.com/agentplugins/agent-plugins-spec
