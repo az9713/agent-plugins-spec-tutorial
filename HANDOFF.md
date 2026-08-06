@@ -69,7 +69,6 @@ All 8 must return 200.
 
 ## Session-transient scratch (regenerate if needed)
 
-- `<scratchpad>/pages-watch.sh` — the outage poller. It is obsolete: the deploy is done. Delete it.
 - `example/client/node_modules/` and `dist/` are gitignored. Rebuild with `npm install && npm test`.
 - `example/.plugin-data/` is gitignored. Either reference client recreates it.
 
