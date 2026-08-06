@@ -77,6 +77,31 @@ Expected report line when loading the example:
 server legacy-feed skipped: transport sse is unsupported
 ```
 
+## The end-to-end demonstration
+
+`example/e2e.py` runs the whole tutorial and proves it works. Python only; it skips the TypeScript
+comparison when Node is absent.
+
+```bash
+python example/e2e.py           # prints the MCP transcript
+python example/e2e.py --quiet   # prints the results only
+```
+
+Part A loads the plugin with the reference client, launches the bundled MCP server from the client's
+own launch plan, runs `initialize` → `tools/list` → `add_note` → `list_notes`, checks that the notes
+land under `${PLUGIN_DATA}` and that nothing is written inside `${PLUGIN_ROOT}`, restarts the server
+to prove the data survives, runs the skill's validator on a good and a bad changelog, builds and
+loads the smallest valid plugin from `index.html`, and confirms both reference clients produce an
+identical launch plan.
+
+Part B compares the code on the four HTML pages with the files in `example/`: the annotated
+`plugin.json` and `mcp.json` must parse to the real files, the printed name regex must be the regex
+both loaders compile, the directory tree must name every file that exists, and the sample loader
+output must be the output the loader prints.
+
+Exit code 0 means every check passed. A broken file makes the related checks fail: change
+`${PLUGIN_DATA}` to `${PLUGIN_ROOT}` in `mcp.json` and four checks turn red.
+
 That is correct behavior. Support for the deprecated `sse` transport is OPTIONAL (§7.2.1), so the
 client skips that one entry and still loads the skill and the two other servers.
 

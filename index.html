@@ -170,6 +170,17 @@ python loader.py ../changelog-tools</code></pre>
 }</code></pre>
 </div>
 
+<p>One more command starts the plugin for real. It loads the plugin with the client, launches the
+bundled MCP server from the launch plan above, speaks the MCP protocol to it, stores two release
+notes, and then proves that every code block on these pages matches the files in
+<code>example/</code>.</p>
+
+<div class="code" data-lang="text">
+  <div class="code-head"><span class="lang">shell</span><span class="file">end-to-end</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>python example/e2e.py           # prints the MCP transcript
+python example/e2e.py --quiet   # prints the results only</code></pre>
+</div>
+
 <div class="callout">
 <span class="tag">Read the report line</span>
 <p>The third server, <code>legacy-feed</code>, uses the deprecated <code>sse</code> transport. Support for
