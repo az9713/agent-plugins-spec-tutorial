@@ -77,6 +77,9 @@ Expected report line when loading the example:
 server legacy-feed skipped: transport sse is unsupported
 ```
 
+That is correct behavior. Support for the deprecated `sse` transport is OPTIONAL (§7.2.1), so the
+client skips that one entry and still loads the skill and the two other servers.
+
 ## The end-to-end demonstration
 
 `example/e2e.py` runs the whole tutorial and proves it works. Python only; it skips the TypeScript
@@ -99,11 +102,13 @@ Part B compares the code on the four HTML pages with the files in `example/`: th
 both loaders compile, the directory tree must name every file that exists, and the sample loader
 output must be the output the loader prints.
 
+Two pages document it: [the implementations](implementation.html) explains the plugin, both clients,
+and how faithful the tutorial code is to the shipping files; [the 59 checks](e2e-tests.html) explains
+every check, what is deliberately untested, and what the passes do and do not prove.
+
 Exit code 0 means every check passed. A broken file makes the related checks fail: change
 `${PLUGIN_DATA}` to `${PLUGIN_ROOT}` in `mcp.json` and four checks turn red.
 
-That is correct behavior. Support for the deprecated `sse` transport is OPTIONAL (§7.2.1), so the
-client skips that one entry and still loads the skill and the two other servers.
 
 ## Verify the example plugin end to end
 

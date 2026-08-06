@@ -12,8 +12,11 @@ Everything is committed and pushed to `main`. Local `HEAD` matches `origin/main`
 
 Done and verified:
 
-- **4 HTML tutorial pages**, self-contained, no CDN: `index.html`, `plugin-authors.html`,
-  `client-implementers.html`, `reference.html`. Shared `assets/style.css` and `assets/tutorial.js`
+- **6 HTML pages.** 4 tutorial pages, self-contained, no CDN: `index.html`, `plugin-authors.html`,
+  `client-implementers.html`, `reference.html` — plus `implementation.html` (what the code
+  contains, and a measured verdict on tutorial-versus-code fidelity: 149 of 165 TypeScript lines are
+  verbatim, and every block that claims to be a file is identical) and `e2e-tests.html` (all 59
+  checks explained, the untested parts, and what the passes do and do not prove). Shared `assets/style.css` and `assets/tutorial.js`
   (theme toggle, syntax highlighting, copy buttons, TOC scrollspy). Verified in a real browser in
   both themes: 0 px horizontal overflow, 149 highlight tokens in the JSONC block, 0 false comments
   inside URL strings, all internal links resolve. Landed in `c1e2034`.
@@ -21,7 +24,7 @@ Done and verified:
   a skill with `references/` and `scripts/`, a working stdio MCP server in `bin/notes_server.py`,
   and a `com.example.client/` extension directory.
 - **Two reference clients**, standard library only, same behavior:
-  `example/client/loader.ts` (357 lines, strict TS) and `example/client/loader.py`.
+  `example/client/loader.ts` (484 lines, strict TS) and `example/client/loader.py` (357 lines).
   Both self-checks pass. Both produce the same launch plan for the example, including the report
   line `server legacy-feed skipped: transport sse is unsupported`.
 - **4 light-theme screenshots** in `assets/screenshots/`, wired into `README.md` as a clickable

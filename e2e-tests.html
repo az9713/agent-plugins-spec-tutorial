@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The 59 checks — what example/e2e.py proves, and what it does not</title>
+<meta name="description" content="Every check in example/e2e.py explained one by one, the parts of the plugin that are deliberately untested, and an honest reading of what 59 passes let you conclude.">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <a class="brand" href="index.html">Agent Plugins <span>1.0.0</span></a>
+  <nav>
+    <a href="index.html">Overview</a>
+    <a href="plugin-authors.html">1. Build a plugin</a>
+    <a href="client-implementers.html">2. Implement a client</a>
+    <a href="reference.html">Reference</a>
+    <a href="implementation.html">Implementation</a>
+    <a href="e2e-tests.html" aria-current="page">The 59 checks</a>
+  </nav>
+  <span class="spacer"></span>
+  <button id="theme-toggle" type="button">Dark</button>
+</header>
+
+<div class="layout">
+  <aside class="toc"><h2>On this page</h2><ol></ol></aside>
+  <main>
+
+<h1>The 59 checks</h1>
+<p class="lede"><code>example/e2e.py</code> is 537 lines that run the whole tutorial and report 59
+results. This page lists every one: what it does, and what breaking would look like. It then does the
+part that most test documentation skips — it names what is <strong>not</strong> tested and why, and it
+states plainly what 59 green results do and do not entitle you to believe.</p>
+
+<div class="meta">
+  <span>59 checks</span>
+  <span>Part A: 29 · Part B: 30</span>
+  <span>~5 s</span>
+  <span>Exit 0 = all passed</span>
+</div>
+
+<h2 id="run">Running it</h2>
+
+<div class="code" data-lang="text">
+  <div class="code-head"><span class="lang">shell</span><span class="file">from the repository root</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>python example/e2e.py           # prints the MCP transcript
+python example/e2e.py --quiet   # prints the results only</code></pre>
+</div>
+
+<p>Python only. The TypeScript comparison prints <code>[SKIP]</code> instead of failing when Node is
+absent. The two parts do different jobs:</p>
+
+<ul>
+<li><strong>Part A — does it run?</strong> Load the plugin with the reference client, then launch the
+bundled MCP server <em>from the client's own launch plan</em> and speak the protocol to it.</li>
+<li><strong>Part B — does the tutorial describe what exists?</strong> Compare every code block on the
+four tutorial pages against the files in <code>example/</code>.</li>
+</ul>
+
+<h2 id="a1">Part A · A1 — the client loads the plugin</h2>
+
+<p>Runs the command the front page tells the reader to run, <code>python loader.py
+../changelog-tools</code>, and inspects the JSON it prints. Nothing is imported privately; the test
+uses the documented entry point.</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>#</th><th>Check</th><th>What it would catch</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>the Python loader loads the example plugin</td><td>A crash, a non-zero exit, or unparsable output. The floor: the documented command works at all.</td></tr>
+<tr><td>2</td><td>the loader finds the skill <code>changelog-entry</code></td><td>Broken discovery of <code>skills/*/SKILL.md</code> <span class="sec">§7.1</span>, or a skill silently dropped.</td></tr>
+<tr><td>3</td><td>the loader keeps the stdio and streamable-http servers</td><td>A valid entry wrongly rejected. Both supported transports must survive.</td></tr>
+<tr><td>4</td><td>the loader skips the sse server <em>and reports why</em></td><td>Failure isolation broken in either direction: an unsupported transport accepted, or one bad entry taking the whole file down <span class="sec">§7.2.2</span>. The report text is compared exactly.</td></tr>
+<tr><td>5</td><td>the client extension namespace survives the load</td><td>A client mangling or dropping <code>extensions</code>, which would make the plugin non-portable <span class="sec">§8.1</span>.</td></tr>
+<tr><td>6</td><td><code>NOTES_FILE</code> expands into <code>PLUGIN_DATA</code>, not <code>PLUGIN_ROOT</code></td><td>A wrong expansion table, or a plugin pointed at its own package directory for writable data <span class="sec">§9.1</span>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="a2">Part A · A2 — the server actually runs</h2>
+
+<p>This is the step that separates a demonstration from a self-check. The launch plan from A1 —
+command, arguments, environment, working directory — is executed verbatim as a subprocess, and the
+test speaks line-delimited JSON-RPC to it. Every request and response is printed.</p>
+
+<div class="callout">
+<span class="tag">One deliberate deviation</span>
+<p>The plugin's <code>env</code> is layered <em>over</em> the process environment, not substituted for
+it. A subprocess started with only the plugin's four variables has no <code>PATH</code> and no
+<code>SystemRoot</code>, and on Windows would not start. A real client layers too; the code says so in
+a comment.</p>
+</div>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>#</th><th>Check</th><th>What it would catch</th></tr></thead>
+<tbody>
+<tr><td>7</td><td><code>initialize</code> returns the protocol version and the server name</td><td>A plan that does not start, a wrong interpreter, a wrong working directory, or a handshake that does not answer.</td></tr>
+<tr><td>8</td><td><code>tools/list</code> returns <code>add_note</code> and <code>list_notes</code></td><td>A server that starts but exposes nothing usable.</td></tr>
+<tr><td>9</td><td><code>list_notes</code> reports an empty store before the first write</td><td>State leaking between runs. The test deletes <code>notes.jsonl</code> first, so this pins the starting point and makes checks 11 and 15 exact rather than approximate.</td></tr>
+<tr><td>10</td><td><code>add_note</code> confirms the write</td><td>A tool call that returns a result without doing the work.</td></tr>
+<tr><td>11</td><td><code>list_notes</code> returns both notes in order</td><td>A lost write, a wrong order, or a read path that disagrees with the write path.</td></tr>
+<tr><td>12</td><td>an unknown tool returns a JSON-RPC error, and the server stays up</td><td>A crash on bad input, or a silent success for a tool that does not exist. Error code <code>-32602</code> is compared.</td></tr>
+<tr><td>13</td><td>the server answers again after the error</td><td>A server that answers the error and then dies. This is the check that makes 12 mean something.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="a3">Part A · A3 — the effect on disk</h2>
+
+<p>Protocol replies are cheap to fake. These three look at the filesystem instead.</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>#</th><th>Check</th><th>What it would catch</th></tr></thead>
+<tbody>
+<tr><td>14</td><td><code>notes.jsonl</code> exists in <code>PLUGIN_DATA</code></td><td>A server that answered correctly but wrote nowhere, or wrote somewhere else.</td></tr>
+<tr><td>15</td><td>it holds both records as line-delimited JSON</td><td>Corrupt framing — the file must parse, one object per line, in order.</td></tr>
+<tr><td>16</td><td><strong>the server wrote nothing inside <code>PLUGIN_ROOT</code></strong> <span class="sec">§9.1</span></td><td>Any write into the package. The test takes a full snapshot of every file's size and modification time before and after, so a new file <em>and</em> a modified file both fail. This is the check the mutation test trips.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="a4">Part A · A4 — the data survives a restart</h2>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>#</th><th>Check</th><th>What it would catch</th></tr></thead>
+<tbody>
+<tr><td>17</td><td>the notes survive a restart of the server</td><td>State held only in memory. The whole reason <code>${PLUGIN_DATA}</code> exists is that it outlives both the process and the next plugin update; a passing 14–16 with in-memory state would still fail here.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="a5">Part A · A5 — the skill's script</h2>
+
+<p>A skill may ship executable support. The tutorial's skill tells the agent to run
+<code>scripts/check_entry.py</code>, so the test runs it on a good file and a bad one.</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>#</th><th>Check</th><th>What it would catch</th></tr></thead>
+<tbody>
+<tr><td>18</td><td>it accepts a valid entry (exit 0)</td><td>A validator that rejects correct input — worse than no validator, because it trains the agent to ignore it.</td></tr>
+<tr><td>19</td><td>it rejects sections in the wrong order (exit 1)</td><td>A validator that passes everything. Exit code, not text, so a caller can branch on it.</td></tr>
+<tr><td>20</td><td>the rejection names the reason</td><td>A failure the agent cannot act on. The string <code>sections are out of order</code> must appear.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="a6">Part A · A6 — the two clients agree</h2>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>#</th><th>Check</th><th>What it would catch</th></tr></thead>
+<tbody>
+<tr><td>21</td><td>both reference clients produce the same launch plan</td><td>Any behavioral divergence. The <em>entire</em> result structure is compared after normalizing path spelling — not a summary, not the keys. A first-difference report names the exact JSON path when it fails, for example <code>$.mcpServers.notes.env.NOTES_FILE</code>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="a7">Part A · A7 — the smallest valid plugin</h2>
+
+<p>The front page shows a four-file tree and a three-line manifest and calls it the smallest valid
+plugin. The test builds that plugin in a temporary directory <em>from the page's own blocks</em> and
+loads it. If the page ever describes something that is not loadable, these four fail.</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>#</th><th>Check</th><th>What it would catch</th></tr></thead>
+<tbody>
+<tr><td>22</td><td>the smallest valid plugin loads</td><td>A claim on the front page that the client contradicts.</td></tr>
+<tr><td>23</td><td>it needs no <code>mcp.json</code></td><td>A client that requires the optional file <span class="sec">§6.2</span>.</td></tr>
+<tr><td>24</td><td>its one skill is discovered</td><td>Discovery that depends on manifest declarations rather than on the directory.</td></tr>
+<tr><td>25</td><td>it produces no warning</td><td>A minimal, fully valid plugin that still emits noise. Silence is part of "valid".</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="a8">Part A · A8 — every documented command</h2>
+
+<p>Four commands appear in the tutorial or the README. The test runs each and requires both exit 0 and
+the expected success line.</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>#</th><th>Command</th><th>What it covers</th></tr></thead>
+<tbody>
+<tr><td>26</td><td><code>python loader.py</code></td><td>The Python client's own self-check: manifest rejection cases, the non-fatal cases, skill discovery rules, MCP per-entry rules, and the single-pass expansion assertions.</td></tr>
+<tr><td>27</td><td><code>npm test</code></td><td>The TypeScript compile under <code>strict</code> plus the same conformance cases. A type error fails here.</td></tr>
+<tr><td>28</td><td><code>python bin/notes_server.py --self-check</code></td><td>The server's handler logic without a subprocess: handshake, tool list, notification returns nothing, unknown method returns an error.</td></tr>
+<tr><td>29</td><td><code>python scripts/check_entry.py</code></td><td>The validator's own assertions.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout trap">
+<span class="tag">Read this before you trust the number 59</span>
+<p>Checks 26 and 27 are <strong>two</strong> results that stand for the whole of both self-check
+suites: 15 assertions and 8 manifest-rejection cases in <code>loader.py</code>, 17 assertions and a
+comparable rejection set in <code>loader.ts</code>. Every containment case and every expansion case
+hides behind those two lines. The number 59 counts <em>reported results</em>, not assertions. Do not
+read it as a measure of coverage depth.</p>
+</div>
+
+<h2 id="partb">Part B · the pages describe what exists</h2>
+
+<p>Documentation rots quietly: the code changes, the page does not, and the reader follows the page.
+These 30 checks turn that into a build failure. Every JSON block is comment-stripped with a
+string-aware scanner — a <code>//</code> inside <code>"https://…"</code> is not a comment — and then
+parsed and compared.</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>#</th><th>Check</th><th>What it would catch</th></tr></thead>
+<tbody>
+<tr><td>30</td><td><code>plugin-authors.html</code> shows exactly one annotated <code>plugin.json</code></td><td>A second, drifting copy of the manifest. Uniqueness first, so 31 compares the right block.</td></tr>
+<tr><td>31</td><td><strong>the annotated manifest equals the real <code>plugin.json</code></strong></td><td>Any difference at all: a changed value, a key added on the page, a key removed from the file.</td></tr>
+<tr><td>32</td><td>it uses all ten manifest keys</td><td>The tutorial's claim to be exhaustive quietly becoming false.</td></tr>
+<tr><td>33</td><td>the page shows <code>mcp.json</code> in two parts</td><td>A restructured page that leaves 34 comparing the wrong thing.</td></tr>
+<tr><td>34</td><td><strong>the two parts join into the real <code>mcp.json</code></strong></td><td>Any drift between the annotated split view and the shipping file.</td></tr>
+<tr><td>35</td><td>all three transports appear</td><td>The tutorial silently ceasing to cover a transport.</td></tr>
+<tr><td>36</td><td>the name regex is printed once</td><td>Two competing statements of the naming rule.</td></tr>
+<tr><td>37</td><td>the printed regex is the one <code>loader.py</code> compiles</td><td>A documented rule the implementation does not apply.</td></tr>
+<tr><td>38</td><td><code>loader.py</code> and <code>loader.ts</code> apply the same name regex</td><td>Two implementations disagreeing on which names are legal — a portability bug at the source level, caught even where check 21 could not see it.</td></tr>
+<tr><td>39</td><td>the page shows the <code>NOTES_FILE</code> excerpt</td><td>The excerpt disappearing while the prose still refers to it.</td></tr>
+<tr><td>40</td><td>the excerpt appears verbatim in <code>bin/notes_server.py</code></td><td>An excerpt edited for the page and never applied to the code.</td></tr>
+<tr><td>41</td><td>the page shows the <code>SKILL.md</code> frontmatter</td><td>The block being removed or restructured.</td></tr>
+<tr><td>42</td><td>the shown frontmatter matches <code>SKILL.md</code></td><td>A renamed skill or a rewritten description. Whitespace is unwrapped first, because the page wraps the description to fit the column.</td></tr>
+<tr><td>43</td><td>every npm script the pages name exists in <code>package.json</code></td><td>A page telling the reader to run a script that was renamed or deleted.</td></tr>
+<tr><td>44–48</td><td><code>index.html</code> prints <code>cd example/client</code>, <code>npm install</code>, <code>npm test</code>, <code>npm run load-example</code>, <code>python loader.py ../changelog-tools</code></td><td>The run instructions being lost in an edit. These are the five commands a reader types first; A8 proves four of them work, and these prove the page still says them.</td></tr>
+<tr><td>49</td><td>every path in the front-page tree exists</td><td>A documented file that was moved or deleted.</td></tr>
+<tr><td>50</td><td><strong>the tree names every file that exists</strong></td><td>The reverse: an <em>undocumented</em> file appearing in the plugin. This is the check that catches stray output — the mutation test trips it when the server writes into the package.</td></tr>
+<tr><td>51</td><td>the sample output names the plugin the loader reports</td><td>A stale example of the tool's output.</td></tr>
+<tr><td>52</td><td>the sample output lists the skill the loader reports</td><td>Same, for discovery.</td></tr>
+<tr><td>53</td><td>the sample output lists the servers the loader reports</td><td>Same, for names and transport types.</td></tr>
+<tr><td>54</td><td>the sample report line is the line the loader prints</td><td>The one line the tutorial asks the reader to look for, compared exactly.</td></tr>
+<tr><td>55</td><td><code>reference.html</code> prints two JSON Schemas</td><td>A missing or duplicated schema block.</td></tr>
+<tr><td>56</td><td>the <code>plugin.json</code> schema's required keys are in the real file</td><td>A schema demanding something the worked example does not have.</td></tr>
+<tr><td>57</td><td>every key of the real <code>plugin.json</code> is declared in its schema</td><td>A key used in the example that the schema does not know about.</td></tr>
+<tr><td>58</td><td>the <code>mcp.json</code> schema's required keys are in the real file</td><td>The same, for MCP.</td></tr>
+<tr><td>59</td><td>every key of the real <code>mcp.json</code> is declared in its schema</td><td>The same, for MCP.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="mutation">Proof that the checks can fail</h2>
+
+<p>A suite that has never been red is not evidence. One character in <code>mcp.json</code> was changed
+— <code>${PLUGIN_DATA}</code> to <code>${PLUGIN_ROOT}</code> — and four independent checks went red
+from that single edit:</p>
+
+<div class="code" data-lang="text">
+  <div class="code-head"><span class="lang">output</span><span class="file">the mutation run</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>[FAIL] NOTES_FILE expands into PLUGIN_DATA, not into PLUGIN_ROOT
+[FAIL] the server wrote nothing inside PLUGIN_ROOT (spec §9.1) — ['notes.jsonl']
+[FAIL] the two parts join into example/changelog-tools/mcp.json
+[FAIL] the tree names every file that exists — nothing is undocumented — ['notes.jsonl']
+=== 55 passed, 4 failed ===
+exit 1</code></pre>
+</div>
+
+<p>Note what the four failures are: one static check on the plan, one observation of the filesystem,
+one documentation-drift check, and one undocumented-file check. The same defect was caught from four
+independent directions, which is the property you want. The file was then restored and the suite
+returned to 59.</p>
+
+<h2 id="gaps">What is not tested, and why</h2>
+
+<p>The gaps below are known, not discovered later. Each has a reason.</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Not tested</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td><strong>The <code>streamable-http</code> server is never contacted.</strong> Only its launch plan is validated.</td><td><code>https://releases.example.com/mcp</code> does not exist, and neither reference client contains HTTP code. A test would need a real server and a network. Checks 3 and 21 cover the <em>planning</em>, which is the part the standard specifies.</td></tr>
+<tr><td><strong>The <code>sse</code> transport is never implemented.</strong></td><td>Support is OPTIONAL <span class="sec">§7.2.1</span> and both clients decline it. Check 4 tests the decision to decline, which is the conformant behavior.</td></tr>
+<tr><td><strong>No agent ever performs the skill.</strong></td><td>Checks 18–20 run the script the skill names. Whether a model reading <code>SKILL.md</code> writes a good changelog is a model-quality question, not a specification question, and no deterministic test can settle it.</td></tr>
+<tr><td><strong><code>references/format.md</code> is never read or validated.</strong></td><td>Its existence is checked (49), and the skill points at it. Its contents are prose for a model; there is nothing to assert.</td></tr>
+<tr><td><strong><code>com.example.client/hooks/hooks.json</code> is never interpreted.</strong></td><td>Deliberate, and the point of the example. Agent Plugins gives that directory no meaning <span class="sec">§8.1</span>. A test that read it would be testing a client that does not exist.</td></tr>
+<tr><td><strong>Malformed JSON-RPC input to the server.</strong></td><td>A real gap, not a justified one. <code>main()</code> calls <code>json.loads(line)</code> unguarded, so a malformed line kills the server. The 106-line example prefers legibility; production code uses an MCP SDK that owns framing and recovery. Named here rather than hidden.</td></tr>
+<tr><td><strong>Concurrency, large payloads, timeouts, a hung or crashed server.</strong></td><td>Out of scope for a teaching example. A client that must survive a hostile plugin needs process supervision, and that is client policy, not specification behavior.</td></tr>
+<tr><td><strong>POSIX. Everything here ran on Windows.</strong></td><td>The code uses <code>os.path</code> and <code>path</code> throughout and check 21 normalizes separators, but no run on Linux or macOS has been observed. Treat cross-platform behavior as untested.</td></tr>
+<tr><td><strong>The <code>./bin/server</code> command form and the <code>${PLUGIN_DATA}</code> and <code>./sub</code> <code>cwd</code> forms.</strong></td><td>Exercised only inside the loaders' self-checks (26, 27), not against the shipping example, which uses a bare <code>python</code> command and <code>cwd: "${PLUGIN_ROOT}"</code>.</td></tr>
+<tr><td><strong>Real JSON Schema validation.</strong></td><td>The standard library has no validator and the project takes no dependency. Checks 56–59 verify only that the printed schemas and the real files agree about which keys exist — not that the files satisfy the schemas.</td></tr>
+<tr><td><strong>The tutorial's prose.</strong></td><td>Part B compares code blocks. A sentence that misstates <span class="sec">§7.2.1</span> passes every check. Prose is reviewed by reading, and the tutorial cites a section for each rule so a reader can verify it against the specification.</td></tr>
+<tr><td><strong>This page and <a href="implementation.html">the implementation page</a>.</strong></td><td>Part B scans the four tutorial pages only. Adding these two would change the number of checks that this page exists to document. The one-line fix — extending the <code>PAGES</code> list in <code>e2e.py</code> — is left for whoever next edits the suite.</td></tr>
+<tr><td><strong>Rendering: theme, layout, horizontal overflow, the table of contents.</strong></td><td>Verified once by hand in a real browser in both themes. Not automated; a browser engine is a dependency this project does not take.</td></tr>
+<tr><td><strong>That the live site serves the current commit.</strong></td><td>Outside the suite. It is a deployment property, and a real one: three quick pushes once left the site serving an older commit while every URL still returned 200. Confirm with the deployment SHA, not with a status code.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="infer">What 59 passes let you conclude</h2>
+
+<h3 id="infer-yes">Established</h3>
+
+<ul>
+<li><strong>The tutorial is executable, not aspirational.</strong> The documented commands run, the
+documented plugin loads, the bundled server starts from the client's own plan, and the front page's
+minimal example is genuinely minimal and genuinely valid.</li>
+<li><strong>There is no hidden step between "plan" and "process".</strong> The client's output is
+directly executable: command, arguments, environment, working directory, spawn. A client author can
+copy that shape.</li>
+<li><strong>The data-durability rule holds in practice.</strong> Writes land in
+<code>${PLUGIN_DATA}</code>, nothing enters <code>${PLUGIN_ROOT}</code> — verified by full snapshot,
+not by inspection — and the data survives a restart.</li>
+<li><strong>Failure isolation holds for the case shown.</strong> One unsupported transport removes one
+server, reports one line, and leaves the other server and the skill loaded.</li>
+<li><strong>Two independent implementations agree completely.</strong> Same input, same output
+structure, character for character after path normalization.</li>
+<li><strong>Documentation drift is now a failure, not a discovery.</strong> Every block that claims to
+be a file is re-derived from the file on every run.</li>
+</ul>
+
+<h3 id="infer-no">Not established</h3>
+
+<ul>
+<li><strong>Conformance to the specification.</strong> One example passing is one data point. There is
+no official conformance suite for Agent Plugins 1.0.0 — the tutorial says so in the reference — and a
+misreading of a rule that both clients share would pass every check here. The two implementations were
+written from the same reading, so their agreement reduces the chance of a <em>coding</em> mistake, not
+of a <em>reading</em> mistake.</li>
+<li><strong>Portability.</strong> Windows 11, Python 3.13.5, Node 22.22.0, one machine.</li>
+<li><strong>That any remote transport works.</strong> No HTTP request was ever made.</li>
+<li><strong>Robustness.</strong> The server was never given malformed input, concurrent input, or a
+large payload. It survives one bad <em>tool name</em>; that is all check 12 claims.</li>
+<li><strong>Security.</strong> Two escape cases are covered inside the loaders' self-checks — a
+<code>../</code> command and a nested <code>SKILL.md</code>. No symlink attack was constructed against
+the shipping example, and no adversarial plugin was written.</li>
+<li><strong>That the prose is correct.</strong> Only code is compared.</li>
+</ul>
+
+<div class="callout rule">
+<span class="tag">The honest one-line summary</span>
+<p>59 passes mean <em>the worked example does what the tutorial says it does, and the tutorial says
+what the files contain</em>. They do not mean the specification is implemented correctly. Those are
+different claims, and only the first one has been measured.</p>
+</div>
+
+<div class="pager">
+  <a href="implementation.html"><small>Previous</small>← The implementations</a>
+  <a href="index.html"><small>Back to</small>Overview →</a>
+</div>
+
+<footer class="page">
+  <p>An unofficial tutorial for the
+  <a href="https://github.com/agentplugins/agent-plugins-spec">Agent Plugins Specification 1.0.0</a>.
+  The specification is the source of truth. Tutorial text: CC BY 4.0. Example code: MIT.</p>
+</footer>
+
+  </main>
+</div>
+<script src="assets/tutorial.js"></script>
+</body>
+</html>

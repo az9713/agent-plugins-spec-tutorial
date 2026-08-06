@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The implementations — plugin, clients, and how faithful the tutorial is</title>
+<meta name="description" content="What example/changelog-tools and the two reference clients actually contain, and a measured verdict on whether the code in the tutorial is the code that ships.">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <a class="brand" href="index.html">Agent Plugins <span>1.0.0</span></a>
+  <nav>
+    <a href="index.html">Overview</a>
+    <a href="plugin-authors.html">1. Build a plugin</a>
+    <a href="client-implementers.html">2. Implement a client</a>
+    <a href="reference.html">Reference</a>
+    <a href="implementation.html" aria-current="page">Implementation</a>
+    <a href="e2e-tests.html">The 59 checks</a>
+  </nav>
+  <span class="spacer"></span>
+  <button id="theme-toggle" type="button">Dark</button>
+</header>
+
+<div class="layout">
+  <aside class="toc"><h2>On this page</h2><ol></ol></aside>
+  <main>
+
+<h1>The implementations</h1>
+<p class="lede">This page describes the code that ships in <code>example/</code>: the worked plugin, the
+two reference clients, and the bundled MCP server. It then answers one question with measurements
+instead of assurances — <strong>is the code printed in the tutorial the code that actually runs?</strong>
+The short answer is yes for every block that claims to be a file, and 90 % for the TypeScript
+excerpts. The last section names every line of the difference and the reason for it.</p>
+
+<div class="meta">
+  <span>1 plugin · 5 components</span>
+  <span>2 clients · 841 lines</span>
+  <span>1 MCP server · 106 lines</span>
+  <span>Standard library only</span>
+</div>
+
+<h2 id="inventory">What ships</h2>
+
+<p>Every file below is real, runs, and is exercised by <a href="e2e-tests.html">the 59 checks</a>.
+No file is a sketch.</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Path</th><th>Lines</th><th>What it is</th></tr></thead>
+<tbody>
+<tr><td><code>example/changelog-tools/plugin.json</code></td><td>20</td><td>The manifest. All ten permitted keys <span class="sec">§5</span>.</td></tr>
+<tr><td><code>example/changelog-tools/mcp.json</code></td><td>26</td><td>Three servers, one per transport <span class="sec">§7.2</span>.</td></tr>
+<tr><td><code>example/changelog-tools/skills/changelog-entry/SKILL.md</code></td><td>22</td><td>The skill: frontmatter plus a procedure.</td></tr>
+<tr><td><code>…/skills/changelog-entry/references/format.md</code></td><td>12</td><td>Support material the skill tells the agent to read.</td></tr>
+<tr><td><code>…/skills/changelog-entry/scripts/check_entry.py</code></td><td>40</td><td>A validator the skill tells the agent to run.</td></tr>
+<tr><td><code>example/changelog-tools/bin/notes_server.py</code></td><td>106</td><td>A working MCP server over stdio.</td></tr>
+<tr><td><code>example/changelog-tools/com.example.client/hooks/hooks.json</code></td><td>3</td><td>A client extension directory <span class="sec">§8.2</span>.</td></tr>
+<tr><td><code>example/client/loader.py</code></td><td>357</td><td>The Python reference client.</td></tr>
+<tr><td><code>example/client/loader.ts</code></td><td>484</td><td>The TypeScript reference client, strict mode.</td></tr>
+<tr><td><code>example/e2e.py</code></td><td>537</td><td>The end-to-end demonstration and the doc-drift check.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout">
+<span class="tag">No dependency</span>
+<p>Every Python file imports the standard library only. The TypeScript client needs
+<code>typescript</code> and <code>@types/node</code> to compile, and nothing at run time. That is
+deliberate: a reader must be able to run the whole tutorial without trusting a package.</p>
+</div>
+
+<h2 id="plugin">The plugin</h2>
+
+<h3 id="plugin-manifest">The manifest carries no behavior</h3>
+
+<p><code>plugin.json</code> declares identity and nothing else. The client reads it, validates it, and
+then looks for components by <strong>directory convention</strong>, not by a list inside the manifest.
+There is no <code>"skills": [...]</code> array anywhere in the standard. That single design choice
+explains most of the client code: discovery is a filesystem walk, so containment and symlink
+resolution do the work that a declared list would otherwise do.</p>
+
+<p>The example uses all ten keys so that the tutorial can annotate each one. Only two are required:
+<code>$schema</code> and <code>name</code>. A plugin with those two keys and one skill directory is
+valid, and <a href="e2e-tests.html#a7">check 22</a> builds exactly that plugin and loads it.</p>
+
+<h3 id="plugin-mcp">Three servers, one per transport</h3>
+
+<div class="code" data-lang="json">
+  <div class="code-head"><span class="lang">json</span><span class="file">example/changelog-tools/mcp.json — the shipping file, uncommented</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "notes": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["${PLUGIN_ROOT}/bin/notes_server.py"],
+      "env": {
+        "NOTES_FILE": "${PLUGIN_DATA}/notes.jsonl",
+        "PYTHONUNBUFFERED": "1"
+      },
+      "cwd": "${PLUGIN_ROOT}"
+    },
+    "release-api": {
+      "type": "streamable-http",
+      "url": "https://releases.example.com/mcp",
+      "headers": { "X-Tenant": "public-tenant" }
+    },
+    "legacy-feed": {
+      "type": "sse",
+      "url": "https://legacy.example.com/sse"
+    }
+  }
+}</code></pre>
+</div>
+
+<p>The three entries do three different jobs in the demonstration:</p>
+
+<ol class="steps">
+  <li><code>notes</code> is <strong>real and runs</strong>. The client builds a launch plan from it, and
+  the demonstration starts that exact process and speaks MCP to it.</li>
+  <li><code>release-api</code> is <strong>valid but never contacted</strong>. Its host does not exist.
+  It proves the client accepts and plans a remote transport; it does not prove any HTTP code works,
+  because there is none.</li>
+  <li><code>legacy-feed</code> exists <strong>to be skipped</strong>. Support for <code>sse</code> is
+  OPTIONAL <span class="sec">§7.2.1</span>. The client drops that one entry, prints
+  <code>server legacy-feed skipped: transport sse is unsupported</code>, and still loads the other
+  two servers and the skill. That one line is the whole failure-isolation rule, observable.</li>
+</ol>
+
+<h3 id="plugin-server">The MCP server: 106 lines, line-delimited JSON-RPC</h3>
+
+<p><code>bin/notes_server.py</code> reads one JSON object per line from standard input and writes one
+per line to standard output. It answers <code>initialize</code>, <code>tools/list</code> and
+<code>tools/call</code>, returns <code>null</code> for a notification, and returns a JSON-RPC error
+for an unknown method or an unknown tool. It advertises protocol version
+<code>2025-06-18</code>.</p>
+
+<p>Its one interesting line is where it decides to write:</p>
+
+<div class="code" data-lang="python">
+  <div class="code-head"><span class="lang">python</span><span class="file">bin/notes_server.py</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>NOTES_FILE = os.environ.get("NOTES_FILE") or os.path.join(
+    os.environ.get("PLUGIN_DATA", "."), "notes.jsonl"
+)</code></pre>
+</div>
+
+<p>The server never resolves a path itself. The client sets <code>PLUGIN_DATA</code>, and
+<code>mcp.json</code> expands it into <code>NOTES_FILE</code>. The server writes where it is told.
+That is the correct division: a plugin update replaces the package contents, so anything written
+inside <code>${PLUGIN_ROOT}</code> disappears on the next update <span class="sec">§9.1</span>.
+<a href="e2e-tests.html#a3">Check 16</a> takes a snapshot of every file in the plugin directory before
+and after the run and fails if a single byte changed.</p>
+
+<div class="callout trap">
+<span class="tag">A known ceiling</span>
+<p>The read loop calls <code>json.loads(line)</code> without a guard. A malformed line raises and
+kills the server. That is acceptable in a 106-line teaching example — an MCP SDK handles framing and
+error recovery for you — but it is a real limit, it is untested, and
+<a href="e2e-tests.html#gaps">the test page names it</a> rather than hiding it.</p>
+</div>
+
+<h3 id="plugin-skill">The skill is prose plus two files</h3>
+
+<p><code>SKILL.md</code> holds YAML frontmatter (<code>name</code>, <code>description</code>) and a
+short procedure. The procedure points at two sibling paths: <code>references/format.md</code> to read,
+and <code>scripts/check_entry.py</code> to run. Neither path is declared anywhere. The skill refers to
+them by relative path, and the client never needs to know they exist.</p>
+
+<p><code>check_entry.py</code> enforces the section order Added → Changed → Deprecated → Removed →
+Fixed → Security, and the heading form <code>## [1.2.0] - 2026-08-06</code>. It exits 0 on a valid
+entry and 1 with a reason on an invalid one.</p>
+
+<h3 id="plugin-ext">The extension directory has no meaning</h3>
+
+<p><code>plugin.json</code> declares <code>extensions: { "com.example.client": { "autoEnable": true } }</code>
+and the plugin ships a matching <code>com.example.client/</code> directory. Agent Plugins gives the
+contents of neither one any meaning <span class="sec">§8.1</span>. A client that does not own the
+namespace must ignore the value <em>and must not validate it</em>. Both reference clients do exactly
+that: they carry the object through to the caller untouched and never look inside. That is what keeps
+a plugin portable across clients that each want their own extras.</p>
+
+<h2 id="clients">The two reference clients</h2>
+
+<p>Same specification, same behavior, two languages. <code>loader.py</code> is 357 lines,
+<code>loader.ts</code> is 484 lines and compiles under <code>strict</code>. The difference in size is
+type declarations and narrowing, not extra logic.</p>
+
+<h3 id="clients-shape">The six steps</h3>
+
+<ol class="steps">
+  <li><strong>Resolve the root.</strong> <code>realpath</code> first, so every later containment test
+  compares resolved paths and a symlink cannot smuggle a path out of the plugin
+  <span class="sec">§4.1</span>.</li>
+  <li><strong>Read <code>plugin.json</code>.</strong> Missing, unparsable, wrong <code>$schema</code>,
+  or an invalid <code>name</code> rejects the whole plugin.</li>
+  <li><strong>Validate the manifest.</strong> An unknown top-level key is dropped with a report, not a
+  rejection <span class="sec">§5.2</span>. A wrong type on a known key rejects — except
+  <code>extensions</code>, which is dropped with a report <span class="sec">§8.1</span>.</li>
+  <li><strong>Discover skills.</strong> Immediate children of <code>skills/</code> that contain a
+  <code>SKILL.md</code> <span class="sec">§7.1</span>. A nested <code>SKILL.md</code> is not a skill. A
+  missing <code>skills/</code> directory is not an error <span class="sec">§6.2</span>.</li>
+  <li><strong>Plan the MCP servers.</strong> Per-entry validation. One bad entry is skipped and
+  reported; the rest still load <span class="sec">§7.2.2</span>.</li>
+  <li><strong>Return the extensions untouched.</strong></li>
+</ol>
+
+<h3 id="clients-boundaries">The failure ladder, in code</h3>
+
+<p>Three levels, and the code makes them structural rather than a matter of care:</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Level</th><th>Mechanism in the code</th><th>Example</th></tr></thead>
+<tbody>
+<tr><td>Reject the plugin</td><td>raise <code>Fatal</code> / throw <code>FatalError</code> out of <code>loadPlugin</code></td><td>Bad <code>name</code>, unknown <code>$schema</code>, wrong type on a known key</td></tr>
+<tr><td>Disable one subsystem</td><td><code>report(...)</code> then <code>return {}</code> from <code>load_mcp</code></td><td><code>mcp.json</code> is invalid JSON, or its version differs from the manifest <span class="sec">§10.1</span></td></tr>
+<tr><td>Skip one entry</td><td><code>ValueError</code> caught inside the per-server loop</td><td><code>legacy-feed</code>, an escaping <code>command</code>, a reserved variable in <code>env</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="clients-expansion">Expansion is one pass, and that is enforced</h3>
+
+<p>Only <code>${PLUGIN_ROOT}</code> and <code>${PLUGIN_DATA}</code> expand, only in
+<code>args</code>, <code>env</code> values and <code>cwd</code>, and the replacement text is never
+scanned again <span class="sec">§9.2</span>. Both clients implement it as a single regular-expression
+substitution with a callback — never as chained <code>.replace()</code> calls, because chaining
+rescans and lets a value that contains a placeholder expand a second time. Both self-checks assert
+the non-recursive property directly:</p>
+
+<div class="code" data-lang="python">
+  <div class="code-head"><span class="lang">python</span><span class="file">loader.py — the self-check</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>assert expand("${PLUGIN_ROOT}", "${PLUGIN_DATA}", "/d") == "${PLUGIN_DATA}"</code></pre>
+</div>
+
+<p>Read that carefully: the root <em>is</em> the literal text <code>${PLUGIN_DATA}</code>. A one-pass
+implementation returns it unchanged. A rescanning implementation returns <code>/d</code>.</p>
+
+<h3 id="clients-data">Where <code>PLUGIN_DATA</code> points</h3>
+
+<div class="code" data-lang="python">
+  <div class="code-head"><span class="lang">python</span><span class="file">loader.py</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>default_data = os.path.join(os.path.dirname(root), ".plugin-data", os.path.basename(root))</code></pre>
+</div>
+
+<p>Outside the package, beside it. The client creates the directory before it launches anything, and
+sets <code>PLUGIN_ROOT</code> and <code>PLUGIN_DATA</code> <strong>last</strong>, after the plugin's own
+<code>env</code>, so a plugin cannot override either one. A plugin that tries to set them in
+<code>env</code> has that entry rejected instead <span class="sec">§9.2</span>.</p>
+
+<h3 id="clients-diff">Where the two clients differ</h3>
+
+<p>In behavior: nowhere that can be observed.
+<a href="e2e-tests.html#a6">Check 21</a> runs both against the example, normalizes path spelling
+(backslash to slash, drive-letter case), and compares the entire result structure — not a summary,
+the whole tree. The check has failed for a real reason during development, so it is not decorative.</p>
+
+<p>In construction, three differences worth knowing:</p>
+
+<ul>
+<li>TypeScript declares an explicit <code>Plugin</code> result type and a <code>Report</code> callback
+type. Python uses plain dictionaries.</li>
+<li>TypeScript narrows every <code>unknown</code> before use, which is most of the extra 127 lines.</li>
+<li>Python's regular expressions and JavaScript's differ in syntax for the same rules. The name rule
+is the one place both spell it identically, and
+<a href="e2e-tests.html#partb">check 38</a> asserts the two source strings are equal
+character for character.</li>
+</ul>
+
+<h2 id="fidelity">Is the tutorial code the code that ships?</h2>
+
+<p>This is the question the page owes you, so here is the measured answer rather than a claim.</p>
+
+<h3 id="fidelity-files">Blocks that claim to be a file: identical</h3>
+
+<p>Every code block in the tutorial that presents itself as a file is byte-equivalent to that file
+after comments are stripped. This is not a spot check — <a href="e2e-tests.html#partb">checks 30 to
+42</a> re-derive it on every run, and a mismatch fails the build.</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Tutorial block</th><th>Real file</th><th>Verdict</th><th>Check</th></tr></thead>
+<tbody>
+<tr><td>The 57-line annotated <code>plugin.json</code></td><td><code>plugin.json</code></td><td class="yes">Identical after comment stripping. All ten keys.</td><td>31, 32</td></tr>
+<tr><td>The two annotated <code>mcp.json</code> blocks</td><td><code>mcp.json</code></td><td class="yes">Identical once the two parts are merged. All three transports.</td><td>34, 35</td></tr>
+<tr><td>The name regex</td><td><code>NAME_RE</code> in both loaders</td><td class="yes">Identical string, and the two loaders agree with each other.</td><td>37, 38</td></tr>
+<tr><td>The <code>NOTES_FILE</code> excerpt</td><td><code>bin/notes_server.py</code></td><td class="yes">Appears verbatim in the file.</td><td>40</td></tr>
+<tr><td>The <code>changelog-tools/</code> tree</td><td>the directory</td><td class="yes">Every path exists, and no file is undocumented.</td><td>49, 50</td></tr>
+<tr><td>The sample loader output</td><td>what the loader prints</td><td class="yes">Same name, same skill, same servers, same report line.</td><td>51–54</td></tr>
+<tr><td>The <code>SKILL.md</code> block</td><td><code>SKILL.md</code></td><td class="no">An <strong>excerpt</strong>. See below.</td><td>42</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="fidelity-skill">Why the <code>SKILL.md</code> block is not the whole file</h3>
+
+<p>Two differences, both deliberate:</p>
+
+<ol class="steps">
+  <li>The page wraps the <code>description</code> across two lines to fit the column. YAML permits the
+  continuation, so the meaning is unchanged. Check 42 unwraps the whitespace before comparing, and the
+  <code>name</code> and <code>description</code> then match exactly.</li>
+  <li>The page stops after the procedure and omits the file's final <code>## Rules</code> section. The
+  page is teaching the <em>shape</em> of a skill — frontmatter, then instructions — and the rules are
+  about changelog style, not about the standard.</li>
+</ol>
+
+<h3 id="fidelity-ts">The TypeScript excerpts: 149 of 165 lines verbatim</h3>
+
+<p><code>client-implementers.html</code> contains 15 TypeScript blocks. Of their 165 non-blank lines,
+<strong>149 (90 %) appear verbatim in <code>loader.ts</code></strong>. The 16 that do not fall into
+exactly four groups, and every one of them is intentional.</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Group</th><th>Lines</th><th>Example</th><th>Why the page differs</th></tr></thead>
+<tbody>
+<tr><td>A teaching comment appended to a real line</td><td>9</td><td><code>const root = fs.realpathSync(…);&nbsp;&nbsp;// step 1</code></td><td>The code is identical; the page adds a margin note that would be noise in the source. The page numbers the six steps in situ.</td></tr>
+<tr><td>An elision marker</td><td>1</td><td><code>// …</code></td><td>The block skips a branch that the surrounding prose has already covered.</td></tr>
+<tr><td>A deliberate counter-example</td><td>1</td><td><code>value.replace("${PLUGIN_ROOT}", root).replace("${PLUGIN_DATA}", data);</code></td><td><strong>This one must not be in <code>loader.ts</code>.</strong> It is the wrong way to expand, printed so the reader can recognize it. Finding it in the source would be the bug.</td></tr>
+<tr><td>Illustrative client code the loader does not contain</td><td>5</td><td>the <code>extensions</code> dispatch loop, and a cast difference (<code>headers as object</code>)</td><td>The loop shows how <em>a client</em> would route an extension value to its own handler. The reference loader deliberately stops at returning the object — routing is client behavior, not specification behavior.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout rule">
+<span class="tag">The rule this page follows</span>
+<p>A block that says it is a file must be that file, and a machine re-checks it. A block that is an
+excerpt or an illustration may differ, and the difference must be nameable. Every difference above is
+named, counted, and reproducible with one command.</p>
+</div>
+
+<h3 id="fidelity-gaps">What the tutorial never shows</h3>
+
+<ul>
+<li><strong><code>loader.py</code> is never quoted.</strong> The tutorial teaches the client in
+TypeScript. Python is the behavioral twin, and it earns its place through check 21 — identical output
+on the same input — rather than through quotation. Read the file; it is the shorter of the two.</li>
+<li><strong>The two JSON Schemas in <code>reference.html</code> are not shipped as files.</strong> No
+<code>.schema.json</code> exists in this repository, and the <code>$schema</code> URLs are identifiers
+the client compares as strings — a conformant client must <em>not</em> fetch them while it loads a
+plugin <span class="sec">§5.2</span>. Checks 55 to 59 therefore verify only that the printed schemas
+are consistent with the real manifests: every required key is present in the real file, and every key
+of the real file is declared in the schema. Nothing validates the manifests against the schemas with a
+real validator, because that would need a dependency.</li>
+<li><strong>This page and the test page are not scanned by the drift check.</strong> Part B reads the
+four tutorial pages only. See <a href="e2e-tests.html#gaps">the reason</a>.</li>
+</ul>
+
+<div class="pager">
+  <a href="reference.html"><small>Previous</small>← Reference</a>
+  <a href="e2e-tests.html"><small>Next</small>The 59 checks →</a>
+</div>
+
+<footer class="page">
+  <p>An unofficial tutorial for the
+  <a href="https://github.com/agentplugins/agent-plugins-spec">Agent Plugins Specification 1.0.0</a>.
+  The specification is the source of truth. Tutorial text: CC BY 4.0. Example code: MIT.</p>
+</footer>
+
+  </main>
+</div>
+<script src="assets/tutorial.js"></script>
+</body>
+</html>
