@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Plugins 1.0.0 — a complete tutorial</title>
+<meta name="description" content="A comprehensive, worked tutorial for the Agent Plugins Specification 1.0.0: build a plugin, and implement a conformant client.">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <a class="brand" href="index.html">Agent Plugins <span>1.0.0</span></a>
+  <nav>
+    <a href="index.html" aria-current="page">Overview</a>
+    <a href="plugin-authors.html">1. Build a plugin</a>
+    <a href="client-implementers.html">2. Implement a client</a>
+    <a href="reference.html">Reference</a>
+  </nav>
+  <span class="spacer"></span>
+  <button id="theme-toggle" type="button">Dark</button>
+</header>
+
+<div class="layout">
+  <aside class="toc"><h2>On this page</h2><ol></ol></aside>
+  <main>
+
+<h1>Agent Plugins 1.0.0 — a complete tutorial</h1>
+<p class="lede">Agent Plugins is an open, vendor-neutral standard. It packages Agent Skills and MCP servers
+into one portable directory that any client can load. This tutorial teaches the whole specification
+through one worked example, at the level of the individual key.</p>
+
+<div class="meta">
+  <span>Specification 1.0.0 · Published</span>
+  <span>2 component types</span>
+  <span>10 manifest keys</span>
+  <span>3 MCP transports</span>
+  <span>2 plugin variables</span>
+</div>
+
+<div class="cards">
+  <a class="card" href="plugin-authors.html">
+    <h3>1 · Build a plugin</h3>
+    <p>Every manifest key and every <code>mcp.json</code> key, explained inside commented JSON. Includes the
+    ten mistakes that break a plugin.</p>
+  </a>
+  <a class="card" href="client-implementers.html">
+    <h3>2 · Implement a client</h3>
+    <p>The six-step loading sequence, the failure-boundary ladder, and a working reference loader in
+    TypeScript and in Python.</p>
+  </a>
+  <a class="card" href="reference.html">
+    <h3>Reference</h3>
+    <p>Every field, every failure boundary, every expansion rule, and the full conformance checklist,
+    in one place.</p>
+  </a>
+</div>
+
+<h2 id="what">What the standard actually is</h2>
+
+<p>A plugin is <strong>one directory</strong>. The directory holds one manifest file and optional components.
+There is no archive format, no registry protocol, and no install command in the specification
+<span class="sec">§4.1</span>.</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Concept</th><th>Definition</th><th>Section</th></tr></thead>
+<tbody>
+<tr><td>Plugin</td><td>A self-contained directory with a manifest and optional components.</td><td><span class="sec">§3</span></td></tr>
+<tr><td>Plugin root</td><td>The top-level directory of the package.</td><td><span class="sec">§3</span></td></tr>
+<tr><td>Manifest</td><td>The file <code>plugin.json</code> in the plugin root. Mandatory.</td><td><span class="sec">§5.1</span></td></tr>
+<tr><td>Component</td><td>A skill or an MCP server entry. Version 1 defines these two, and no other.</td><td><span class="sec">§7</span></td></tr>
+<tr><td>Client</td><td>A tool that discovers, installs, loads, and runs the components.</td><td><span class="sec">§3</span></td></tr>
+<tr><td>Extension namespace</td><td>A reverse-domain identifier that one client owns, for example <code>com.example.client</code>.</td><td><span class="sec">§8</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout rule">
+<span class="tag">The one-sentence summary</span>
+<p>Agent Plugins defines <em>where a client looks</em> and <em>what a client must accept or reject</em>.
+It does not define how a client shows a skill, where a plugin comes from, or whether a user trusts it.</p>
+</div>
+
+<h2 id="smallest">The smallest valid plugin</h2>
+
+<p>Three files. This plugin conforms.</p>
+
+<div class="code" data-lang="text">
+  <div class="code-head"><span class="lang">text</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>hello-plugin/
+├── plugin.json
+└── skills/
+    └── greet/
+        └── SKILL.md</code></pre>
+</div>
+
+<div class="code" data-lang="json">
+  <div class="code-head"><span class="lang">json</span><span class="file">plugin.json</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "hello-plugin"
+}</code></pre>
+</div>
+
+<p>Two keys are required: <code>$schema</code> and <code>name</code> <span class="sec">§5.3</span>. Everything else is
+optional. A client that supports skills now finds the skill <code>greet</code> at
+<code>skills/greet/SKILL.md</code> <span class="sec">§7.1</span>.</p>
+
+<h2 id="example">The example used throughout</h2>
+
+<p>Both tutorials use one plugin. It helps a developer write release notes. It exercises every
+feature of the specification: all ten manifest keys, all three MCP transports, both plugin
+variables, a bundled executable, and a client extension.</p>
+
+<div class="code" data-lang="text">
+  <div class="code-head"><span class="lang">text</span><span class="file">example/changelog-tools/</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>changelog-tools/
+├── plugin.json                       # the manifest — all 10 keys       (§5)
+├── mcp.json                          # 3 servers, 3 transports          (§7.2)
+├── skills/
+│   └── changelog-entry/
+│       ├── SKILL.md                  # the skill itself                 (§7.1)
+│       ├── references/format.md      # support material
+│       └── scripts/check_entry.py    # a helper script
+├── bin/
+│   └── notes_server.py               # a bundled, working MCP server
+└── com.example.client/               # a client extension directory     (§8.2)
+    └── hooks/hooks.json</code></pre>
+</div>
+
+<p>The plugin gives an agent two capabilities:</p>
+<ol class="steps">
+  <li>A <strong>skill</strong> that teaches the changelog format, with a reference file and a validator script.</li>
+  <li>An <strong>MCP server</strong> that stores release notes in a file, and keeps them between sessions.</li>
+</ol>
+
+<h2 id="run">Run everything yourself</h2>
+
+<p>Two reference clients ship with this tutorial. Both implement the same specification, and both
+produce the same result.</p>
+
+<div class="code" data-lang="text">
+  <div class="code-head"><span class="lang">shell</span><span class="file">TypeScript</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>cd example/client
+npm install
+npm test              # runs the self-check: 30+ conformance cases
+npm run load-example  # loads ../changelog-tools and prints the launch plan</code></pre>
+</div>
+
+<div class="code" data-lang="text">
+  <div class="code-head"><span class="lang">shell</span><span class="file">Python</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>cd example/client
+python loader.py                  # runs the same self-check
+python loader.py ../changelog-tools</code></pre>
+</div>
+
+<p>Expected output from the load, shortened:</p>
+
+<div class="code" data-lang="json">
+  <div class="code-head"><span class="lang">json</span><span class="file">output</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>{
+  "name": "changelog-tools",
+  "skills": [ { "name": "changelog-entry", "path": ".../skills/changelog-entry/SKILL.md" } ],
+  "servers": {
+    "notes":       { "type": "stdio", "command": "python", "...": "..." },
+    "release-api": { "type": "streamable-http", "url": "https://releases.example.com/mcp" }
+  },
+  "reports": [ "server legacy-feed skipped: transport sse is unsupported" ]
+}</code></pre>
+</div>
+
+<div class="callout">
+<span class="tag">Read the report line</span>
+<p>The third server, <code>legacy-feed</code>, uses the deprecated <code>sse</code> transport. Support for
+<code>sse</code> is OPTIONAL <span class="sec">§7.2.1</span>. The client skips that one entry, reports the
+reason, and still loads the other two servers and the skill. That is the failure-isolation
+rule of the specification in action <span class="sec">§7.2.2</span>.</p>
+</div>
+
+<h2 id="map">How to read this tutorial</h2>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>You are</th><th>Read</th><th>Then</th></tr></thead>
+<tbody>
+<tr><td>Packaging skills or an MCP server for other people</td><td><a href="plugin-authors.html">Tutorial 1</a></td><td>Copy <code>example/changelog-tools/</code> and edit it.</td></tr>
+<tr><td>Building an agent, an IDE, or a CLI that loads plugins</td><td><a href="client-implementers.html">Tutorial 2</a></td><td>Port <code>example/client/loader.ts</code>.</td></tr>
+<tr><td>Checking one rule quickly</td><td><a href="reference.html">Reference</a></td><td>Use the field tables and the failure matrix.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Every rule in this tutorial carries its specification section, for example <span class="sec">§7.2.1</span>.
+Check any claim against the
+<a href="https://github.com/agentplugins/agent-plugins-spec/blob/main/spec/1.0.0.md">canonical specification text</a>.
+When this tutorial and the specification disagree, the specification governs.</p>
+
+<h2 id="scope">What version 1 deliberately leaves out</h2>
+
+<p>Do not design around these. They do not exist yet, and the project records them as future work.</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Absent</th><th>Consequence today</th></tr></thead>
+<tbody>
+<tr><td>A permission model, a capability declaration, and a sandbox</td><td>The client owns the trust prompt. A plugin cannot declare what it needs.</td></tr>
+<tr><td>Signature and provenance verification</td><td>A client cannot verify the origin of a package through the standard.</td></tr>
+<tr><td>A portable secret mechanism</td><td>Never put a credential in <code>env</code> or in <code>headers</code>. Both are visible package data.</td></tr>
+<tr><td>Enterprise allowlist, blocklist, and central override</td><td>Policy is a client feature.</td></tr>
+<tr><td>A standard audit event schema</td><td>Reporting is required, but the format is yours.</td></tr>
+<tr><td>Dependencies between plugins</td><td>Each plugin must be self-contained.</td></tr>
+<tr><td>A standard validator and a conformance suite</td><td>Test with your own cases. This tutorial supplies a starting set.</td></tr>
+<tr><td>Commands, hooks, agents, rules, and LSP servers</td><td>Not component types. Use a client extension namespace <span class="sec">§8</span>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="pager">
+  <span></span>
+  <a href="plugin-authors.html"><small>Next</small>1 · Build a plugin →</a>
+</div>
+
+<footer class="page">
+  <p>An unofficial tutorial for the
+  <a href="https://github.com/agentplugins/agent-plugins-spec">Agent Plugins Specification 1.0.0</a>.
+  The specification is the source of truth. Tutorial text: CC BY 4.0. Example code: MIT.</p>
+</footer>
+
+  </main>
+</div>
+<script src="assets/tutorial.js"></script>
+</body>
+</html>

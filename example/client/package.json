@@ -1,0 +1,16 @@
+{
+  "name": "agent-plugins-reference-client",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Reference Agent Plugins v1.0.0 loader in TypeScript.",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc",
+    "test": "tsc && node dist/loader.js",
+    "load-example": "tsc && node dist/loader.js ../changelog-tools"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.8.0"
+  }
+}

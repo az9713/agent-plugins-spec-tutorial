@@ -1,0 +1,788 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>1 · Build a plugin — Agent Plugins 1.0.0 tutorial</title>
+<meta name="description" content="Every key of plugin.json and mcp.json explained, with commented JSON and one worked example plugin.">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <a class="brand" href="index.html">Agent Plugins <span>1.0.0</span></a>
+  <nav>
+    <a href="index.html">Overview</a>
+    <a href="plugin-authors.html" aria-current="page">1. Build a plugin</a>
+    <a href="client-implementers.html">2. Implement a client</a>
+    <a href="reference.html">Reference</a>
+  </nav>
+  <span class="spacer"></span>
+  <button id="theme-toggle" type="button">Dark</button>
+</header>
+
+<div class="layout">
+  <aside class="toc"><h2>On this page</h2><ol></ol></aside>
+  <main>
+
+<h1>Tutorial 1 — Build an Agent Plugin</h1>
+<p class="lede">You package one skill and one MCP server into a directory that any conformant client can
+load. This page explains every key that you may write, and every rule that decides whether the client
+accepts it.</p>
+
+<div class="meta">
+  <span>Specification 1.0.0</span>
+  <span>Example: <code>example/changelog-tools/</code></span>
+  <span>Build time: about 20 minutes</span>
+</div>
+
+<div class="callout warn">
+<span class="tag">About the comments in the JSON below</span>
+<p>JSON forbids a comment. The listings on this page add <code>//</code> comments to explain each key, and
+they are marked <code>jsonc</code>. The real files in <code>example/</code> contain no comment. A comment in a
+real file makes the document invalid JSON, and the client rejects the plugin <span class="sec">§5.2</span>.</p>
+</div>
+
+<h2 id="model">1 · The package model</h2>
+
+<p>Five rules define the package <span class="sec">§4.1</span>. Learn these first, because every later rule
+depends on them.</p>
+
+<ol class="steps">
+  <li>A plugin is a directory at one filesystem location.</li>
+  <li>The directory <strong>must</strong> contain <code>plugin.json</code> at its root.</li>
+  <li>Every file that the client reads from the package must resolve <strong>inside</strong> the plugin root,
+      after the operating system follows every symlink, junction, and reparse point.</li>
+  <li>A configuration field that the specification defines as a plugin-relative path must begin with
+      <code>./</code>, and must still be inside the root after resolution.</li>
+  <li>A value that the specification does <em>not</em> define as a path — a command argument, an environment
+      value — is an opaque string. The client does not treat it as a package path.</li>
+</ol>
+
+<h3 id="containment">1.1 Which paths are legal</h3>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Value</th><th>Legal</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td><code>./bin/server</code></td><td class="yes">Yes</td><td>It starts with <code>./</code>, and it stays inside the root.</td></tr>
+<tr><td><code>./data</code></td><td class="yes">Yes</td><td>Same reason.</td></tr>
+<tr><td><code>./sub/../bin/server</code></td><td class="yes">Yes</td><td>It starts with <code>./</code>, and it still resolves inside the root.</td></tr>
+<tr><td><code>bin/server</code></td><td class="no">No</td><td>A plugin-relative path must begin with <code>./</code>.</td></tr>
+<tr><td><code>../bin/server</code></td><td class="no">No</td><td>It escapes the plugin root.</td></tr>
+<tr><td><code>/usr/bin/server</code></td><td class="no">No</td><td>An absolute path is not a plugin-relative path.</td></tr>
+<tr><td>A symlink whose target is inside the root</td><td class="yes">Yes</td><td>Explicitly allowed <span class="sec">§4.1</span>.</td></tr>
+<tr><td>A symlink whose target is outside the root</td><td class="no">No</td><td>The client must reject the resolved path.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout">
+<span class="tag">What containment does not do</span>
+<p>These rules govern the files that <em>the package supplies</em>. They do not sandbox your subprocess,
+and they do not restrict a path that the user types at run time <span class="sec">§4.1</span>. A stdio
+server that you launch can still read the whole filesystem. Version 1 has no sandbox.</p>
+</div>
+
+<h3 id="layout">1.2 The standard layout</h3>
+
+<div class="code" data-lang="text">
+  <div class="code-head"><span class="lang">text</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>my-plugin/
+├── plugin.json              # REQUIRED. The manifest.                    §5
+├── skills/                  # OPTIONAL. Fixed location for skills.       §6.1
+│   └── summarize/
+│       ├── SKILL.md
+│       ├── scripts/
+│       └── references/
+├── mcp.json                 # OPTIONAL. Fixed location for MCP servers.  §6.1
+├── com.example.client/      # OPTIONAL. A client extension directory.    §8.2
+│   └── hooks/
+├── LICENSE
+└── CHANGELOG.md</code></pre>
+</div>
+
+<p>The two component locations are <strong>fixed</strong>. <code>plugin.json</code> cannot move them, and it cannot
+hold inline component configuration <span class="sec">§6.1</span>.</p>
+
+<h2 id="manifest">2 · The manifest, key by key</h2>
+
+<p>The manifest schema is <strong>closed</strong>. Exactly ten top-level keys are permitted, and no other key
+<span class="sec">§5.2</span>. Here is the complete manifest of the example, with every key explained.</p>
+
+<div class="code" data-lang="jsonc">
+  <div class="code-head"><span class="lang">jsonc</span><span class="file">changelog-tools/plugin.json</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>{
+  // REQUIRED (§5.3). The canonical schema identifier.
+  // The value tells the client WHICH specification version to apply.
+  // For version 1.0.0 the value MUST be exactly this string.
+  // The client MUST NOT download this URL while it loads the plugin (§5.2).
+  // An unrecognized value makes the client REJECT the whole plugin.
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+
+  // REQUIRED (§5.3). The plugin name. Four constraints apply (§5.5):
+  //   length        1 to 64 characters inclusive
+  //   character set a-z, 0-9, hyphen, period — lowercase only
+  //   first / last  must be alphanumeric
+  //   repetition    no "--" and no ".."
+  // A violation REJECTS the whole plugin.
+  "name": "changelog-tools",
+
+  // OPTIONAL (§5.4). The package version.
+  // Semantic Versioning is RECOMMENDED, not required.
+  // The client MUST NOT reject the plugin because this is not SemVer (§5.4).
+  // A client MAY use the value to detect an update and to expire a cache (§10.2).
+  "version": "1.2.0",
+
+  // OPTIONAL (§5.4). One short sentence about the purpose of the plugin.
+  "description": "Writes changelog entries and stores release notes.",
+
+  // OPTIONAL (§5.4). An object with THREE permitted keys and no other key.
+  // Any extra key, or a non-string value, REJECTS the whole plugin.
+  "author": {
+    "name": "Simon",              // OPTIONAL string.
+    "email": "az9713@yahoo.com",  // OPTIONAL string. The format is NOT verified.
+    "url": "https://example.com"  // OPTIONAL string. The format is NOT verified.
+  },
+
+  // OPTIONAL (§5.4). The documentation URL. The format is NOT verified.
+  "homepage": "https://example.com/changelog-tools",
+
+  // OPTIONAL (§5.4). The source repository URL. The format is NOT verified.
+  "repository": "https://github.com/example/changelog-tools",
+
+  // OPTIONAL (§5.4). The license. An SPDX identifier is RECOMMENDED, not required.
+  "license": "MIT",
+
+  // OPTIONAL (§5.4). An array of strings, for search and for discovery.
+  // A non-string element REJECTS the whole plugin.
+  "keywords": ["changelog", "release", "notes"],
+
+  // OPTIONAL (§5.6, §8.1). Client-specific data.
+  // Each KEY is a reverse-domain namespace that one client owns.
+  // Each VALUE must be an object. Agent Plugins gives the contents no meaning.
+  // A client that does not own the namespace ignores the value, and does not
+  // validate it. Your plugin therefore stays portable.
+  "extensions": {
+    "com.example.client": {
+      "autoEnable": true
+    }
+  }
+}</code></pre>
+</div>
+
+<h3 id="fields">2.1 The ten keys as cards</h3>
+
+<div class="field">
+  <header><h4>$schema</h4><span class="badge req">Required</span><span class="badge type">string</span><span class="badge opt">§5.2, §5.3</span></header>
+  <div class="body">
+    <p>The canonical identifier <code>https://agent-plugins.org/schemas/1.0.0/plugin.schema.json</code>.
+    Nothing else is valid for version 1.0.0.</p>
+    <p>The client uses the value to select <em>local</em> validation rules. It never fetches the URL during
+    a load. When the client supports no matching version, it rejects the plugin and should report the
+    unsupported version.</p>
+  </div>
+</div>
+
+<div class="field">
+  <header><h4>name</h4><span class="badge req">Required</span><span class="badge type">string</span><span class="badge opt">§5.3, §5.5</span></header>
+  <div class="body">
+    <p>The plugin name. See <a href="#names">section 2.3</a> for every constraint and for worked examples.</p>
+  </div>
+</div>
+
+<div class="field">
+  <header><h4>version</h4><span class="badge opt">Optional</span><span class="badge type">string</span><span class="badge opt">§5.4, §10.2</span></header>
+  <div class="body">
+    <p>Any string. SemVer is recommended: major for a breaking change, minor for a
+    backward-compatible feature, patch for a backward-compatible fix.</p>
+    <p>A client may use the value for update detection and for cache freshness. A client must not reject
+    the plugin because the string is not SemVer.</p>
+  </div>
+</div>
+
+<div class="field">
+  <header><h4>description</h4><span class="badge opt">Optional</span><span class="badge type">string</span><span class="badge opt">§5.4</span></header>
+  <div class="body"><p>A short description of the purpose. No length constraint exists in the specification.</p></div>
+</div>
+
+<div class="field">
+  <header><h4>author</h4><span class="badge opt">Optional</span><span class="badge type">object</span><span class="badge opt">§5.4</span></header>
+  <div class="body">
+    <p>A closed object. It accepts <code>name</code>, <code>email</code>, and <code>url</code>, each a string.
+    Any other key, or a non-string value, is <strong>fatal</strong>: the client rejects the plugin.</p>
+    <p>The client does not verify that <code>email</code> looks like an email address, or that <code>url</code>
+    looks like a URL.</p>
+  </div>
+</div>
+
+<div class="field">
+  <header><h4>homepage</h4><span class="badge opt">Optional</span><span class="badge type">string</span><span class="badge opt">§5.4</span></header>
+  <div class="body"><p>A documentation or home page URL. The format is not verified.</p></div>
+</div>
+
+<div class="field">
+  <header><h4>repository</h4><span class="badge opt">Optional</span><span class="badge type">string</span><span class="badge opt">§5.4</span></header>
+  <div class="body"><p>A source repository URL. The format is not verified.</p></div>
+</div>
+
+<div class="field">
+  <header><h4>license</h4><span class="badge opt">Optional</span><span class="badge type">string</span><span class="badge opt">§5.4</span></header>
+  <div class="body"><p>A license identifier. An SPDX identifier is recommended. A non-SPDX string is not a rejection reason.</p></div>
+</div>
+
+<div class="field">
+  <header><h4>keywords</h4><span class="badge opt">Optional</span><span class="badge type">string[]</span><span class="badge opt">§5.4</span></header>
+  <div class="body"><p>Search and discovery tags. Every element must be a string. A non-string element rejects the plugin.</p></div>
+</div>
+
+<div class="field">
+  <header><h4>extensions</h4><span class="badge opt">Optional</span><span class="badge type">object</span><span class="badge opt">§5.6, §8.1</span></header>
+  <div class="body">
+    <p>An object whose keys are reverse-domain namespaces and whose values are objects.</p>
+    <p>Two different failure rules apply here, and the difference matters:</p>
+    <ul>
+      <li><code>"extensions": "text"</code> — the field is not an object. <strong>Non-fatal.</strong> The client
+      reports it, ignores it, and continues <span class="sec">§8.1</span>.</li>
+      <li><code>"extensions": { "com.x": "text" }</code> — a member value is not an object.
+      <strong>Fatal.</strong> The client rejects the plugin <span class="sec">§8.1</span>.</li>
+    </ul>
+  </div>
+</div>
+
+<h3 id="fatal">2.2 What each error does</h3>
+
+<p>Exactly two manifest problems are non-fatal. Every other problem rejects the whole plugin: no skill
+is discovered, and no server starts <span class="sec">§5.2, §11.3</span>.</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Problem</th><th>Result</th><th>Section</th></tr></thead>
+<tbody>
+<tr><td>An unknown top-level key, for example <code>"tools": []</code></td><td class="yes">Non-fatal — reported, ignored, loading continues</td><td><span class="sec">§5.2</span></td></tr>
+<tr><td><code>extensions</code> is not an object</td><td class="yes">Non-fatal — reported, ignored, loading continues</td><td><span class="sec">§8.1</span></td></tr>
+<tr><td><code>plugin.json</code> is missing</td><td class="no">Fatal — the plugin is rejected</td><td><span class="sec">§5.1</span></td></tr>
+<tr><td><code>plugin.json</code> is not valid JSON, or is not an object</td><td class="no">Fatal</td><td><span class="sec">§5.2</span></td></tr>
+<tr><td><code>$schema</code> is missing, or is unrecognized</td><td class="no">Fatal</td><td><span class="sec">§5.2, §5.3</span></td></tr>
+<tr><td><code>name</code> is missing, empty, or breaks a constraint</td><td class="no">Fatal</td><td><span class="sec">§5.3, §5.5</span></td></tr>
+<tr><td>Any permitted key has the wrong JSON type</td><td class="no">Fatal</td><td><span class="sec">§5.2</span></td></tr>
+<tr><td><code>author</code> holds a fourth key</td><td class="no">Fatal</td><td><span class="sec">§5.4</span></td></tr>
+<tr><td>An <code>extensions</code> member value is not an object</td><td class="no">Fatal</td><td><span class="sec">§8.1</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout trap">
+<span class="tag">Trap</span>
+<p>An unknown top-level key is still a schema violation. The client reports it. Do not treat the
+non-fatal rule as permission to invent a key. Put client-specific data under
+<code>extensions</code> <span class="sec">§5.2</span>.</p>
+</div>
+
+<h3 id="names">2.3 The name constraints in detail</h3>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Constraint</th><th>Requirement</th></tr></thead>
+<tbody>
+<tr><td>Length</td><td>1 to 64 characters inclusive.</td></tr>
+<tr><td>Character set</td><td><code>a-z</code>, <code>0-9</code>, <code>-</code>, and <code>.</code> only. Lowercase only.</td></tr>
+<tr><td>First and last character</td><td>Alphanumeric.</td></tr>
+<tr><td>Repetition</td><td>No <code>--</code>. No <code>..</code>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Name</th><th>Valid</th><th>Reason</th></tr></thead>
+<tbody>
+<tr><td><code>my-plugin</code></td><td class="yes">Yes</td><td>Every rule holds.</td></tr>
+<tr><td><code>acme.tools</code></td><td class="yes">Yes</td><td>A period is allowed inside the name.</td></tr>
+<tr><td><code>lint3r</code></td><td class="yes">Yes</td><td>Digits are allowed.</td></tr>
+<tr><td><code>a</code></td><td class="yes">Yes</td><td>One character satisfies the length rule.</td></tr>
+<tr><td><code>My-Plugin</code></td><td class="no">No</td><td>Uppercase.</td></tr>
+<tr><td><code>-start</code></td><td class="no">No</td><td>The first character is not alphanumeric.</td></tr>
+<tr><td><code>end-</code></td><td class="no">No</td><td>The last character is not alphanumeric.</td></tr>
+<tr><td><code>has--double</code></td><td class="no">No</td><td>Consecutive hyphens.</td></tr>
+<tr><td><code>too.many..dots</code></td><td class="no">No</td><td>Consecutive periods.</td></tr>
+<tr><td><code>my_plugin</code></td><td class="no">No</td><td>An underscore is outside the character set.</td></tr>
+<tr><td><code>""</code></td><td class="no">No</td><td>Empty.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>One regular expression enforces all four constraints, apart from the maximum length:</p>
+
+<div class="code" data-lang="ts">
+  <div class="code-head"><span class="lang">regex</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>/^(?!.*(?:--|\.\.))[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/</code></pre>
+</div>
+
+<h2 id="skills">3 · Skills</h2>
+
+<h3 id="skill-discovery">3.1 Where the client looks</h3>
+
+<p>The location is fixed at <code>skills/</code> <span class="sec">§6.1</span>. The client reads each
+<strong>immediate child directory</strong>. A child that contains a regular file named exactly
+<code>SKILL.md</code> is one skill. The client does <strong>not</strong> search deeper
+<span class="sec">§7.1</span>.</p>
+
+<div class="code" data-lang="text">
+  <div class="code-head"><span class="lang">text</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>skills/
+├── changelog-entry/
+│   └── SKILL.md            ✓ discovered. The skill name is "changelog-entry".
+├── notes/
+│   └── README.md           ✗ ignored. There is no SKILL.md file.
+├── deep/
+│   └── nested/
+│       └── SKILL.md        ✗ ignored. The client does not recurse.
+└── SKILL.md                ✗ ignored. A skill needs its own directory.</code></pre>
+</div>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Condition</th><th>Client behavior</th><th>Section</th></tr></thead>
+<tbody>
+<tr><td><code>skills/</code> does not exist</td><td>Not an error. The client loads the other component types.</td><td><span class="sec">§6.2</span></td></tr>
+<tr><td><code>skills</code> exists but is a file</td><td>The skill component type is invalid. Other types still load.</td><td><span class="sec">§6.2</span></td></tr>
+<tr><td>A child directory has no <code>SKILL.md</code></td><td>Ignored silently.</td><td><span class="sec">§7.1</span></td></tr>
+<tr><td>A <code>SKILL.md</code> resolves outside the root</td><td>That skill is skipped. Other skills still load.</td><td><span class="sec">§4.1, §7.1</span></td></tr>
+<tr><td>A <code>SKILL.md</code> breaks the Agent Skills specification</td><td>That skill is skipped and reported. Other skills still load.</td><td><span class="sec">§7.1</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="skill-format">3.2 What goes inside a skill</h3>
+
+<p>Agent Plugins does <strong>not</strong> define the <code>SKILL.md</code> format. The
+<a href="https://agentskills.io/specification">Agent Skills specification</a> defines the frontmatter, the
+body, and the support directories <code>scripts/</code>, <code>references/</code>, and <code>assets/</code>
+<span class="sec">§7.1</span>. Agent Plugins defines the discovery only.</p>
+
+<div class="code" data-lang="text">
+  <div class="code-head"><span class="lang">markdown</span><span class="file">skills/changelog-entry/SKILL.md</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>---
+name: changelog-entry
+description: Write a Keep a Changelog entry from a list of merged pull requests.
+  Use when the user asks for a changelog, a release note, or a version summary.
+---
+
+# Changelog entry
+
+Write one changelog entry for one version.
+
+## Procedure
+
+1. Read `references/format.md` for the required section order.
+2. Group each change into one section: Added, Changed, Deprecated,
+   Removed, Fixed, Security.
+3. Write one line for each change. Start each line with a verb.
+4. Add the version and the date: `## [1.2.0] - 2026-08-06`.
+5. Run `scripts/check_entry.py &lt;file&gt;` to verify the section order.</code></pre>
+</div>
+
+<div class="callout rule">
+<span class="tag">Rule</span>
+<p>The <code>description</code> field decides whether the model loads the skill at all. Name the trigger, not
+only the topic. "Use when the user asks for a changelog" beats "About changelogs".</p>
+</div>
+
+<h2 id="mcp">4 · MCP servers</h2>
+
+<h3 id="mcp-file">4.1 The file</h3>
+
+<p>The location is fixed at <code>mcp.json</code> in the plugin root. You cannot put MCP configuration inside
+<code>plugin.json</code>, and you cannot use another path <span class="sec">§7.2.1</span>.</p>
+
+<p>The file has exactly two top-level keys, and no other key. An empty <code>mcpServers</code> object is valid
+<span class="sec">§7.2.1</span>.</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Key</th><th>Required</th><th>Type</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>$schema</code></td><td class="yes">Yes</td><td>string</td><td>The canonical MCP schema identifier. Its version must match <code>plugin.json</code> <span class="sec">§10.1</span>.</td></tr>
+<tr><td><code>mcpServers</code></td><td class="yes">Yes</td><td>object</td><td>Each key names a server. Each value is a closed server object.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="stdio">4.2 The stdio transport, key by key</h3>
+
+<p>A stdio server runs as a subprocess on the user's machine.</p>
+
+<div class="code" data-lang="jsonc">
+  <div class="code-head"><span class="lang">jsonc</span><span class="file">changelog-tools/mcp.json — the stdio entry</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>{
+  // REQUIRED. The canonical MCP schema identifier for the SAME version as plugin.json.
+  // A version mismatch disables MCP for this plugin. The skills still load (§7.2.2).
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+
+  // REQUIRED. An object. Each key is a server name. An empty object is valid (§7.2.1).
+  "mcpServers": {
+
+    "notes": {
+      // REQUIRED. "stdio" selects a local subprocess.
+      // The variant is CLOSED: a key from another variant (url, headers) makes
+      // THIS ENTRY invalid. The other entries still load (§7.2.2).
+      "type": "stdio",
+
+      // REQUIRED. ONE executable token. NOT a shell command string (§7.2.1).
+      //   "python"           ✓ a bare name — the platform executable search resolves it
+      //   "./bin/server"     ✓ a plugin-relative path — resolved against the plugin root
+      //   "python -u x.py"   ✗ two tokens — put the rest in "args"
+      //   "../bin/server"    ✗ escapes the plugin root (§4.1)
+      // NO placeholder expands in this field (§9.2).
+      // A bundled executable MUST use "./". A conformant plugin MUST NOT depend on
+      // the configured PATH, because PATH behavior is client-defined (§7.2.1).
+      "command": "python",
+
+      // OPTIONAL. An array of strings passed to the executable.
+      // ${PLUGIN_ROOT} and ${PLUGIN_DATA} DO expand here (§9.2).
+      "args": ["${PLUGIN_ROOT}/bin/notes_server.py"],
+
+      // OPTIONAL. An object of string values.
+      // The VALUES expand. The KEYS do not (§9.2).
+      // The keys PLUGIN_ROOT and PLUGIN_DATA are FORBIDDEN — the client supplies both,
+      // and such a key makes THIS ENTRY invalid (§9.2).
+      // These values are visible package data. NEVER store a secret here.
+      "env": {
+        "NOTES_FILE": "${PLUGIN_DATA}/notes.jsonl",
+        "PYTHONUNBUFFERED": "1"
+      },
+
+      // OPTIONAL. The working directory of the subprocess.
+      // Omitted  -> the client uses the PLUGIN ROOT (§7.2.1).
+      // Only three forms are legal:
+      //   "./data"          a plugin-relative path
+      //   "${PLUGIN_ROOT}"  or "${PLUGIN_ROOT}/sub"
+      //   "${PLUGIN_DATA}"  or "${PLUGIN_DATA}/sub"
+      // Any other form — "data", "/tmp", "~/x" — makes THIS ENTRY invalid.
+      // The client expands first, then checks containment against the matching base.
+      "cwd": "${PLUGIN_ROOT}"
+    }
+  }
+}</code></pre>
+</div>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Key</th><th>Required</th><th>Type</th><th>Expands</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>type</code></td><td class="yes">Yes</td><td><code>"stdio"</code></td><td class="no">No</td><td>Selects the transport.</td></tr>
+<tr><td><code>command</code></td><td class="yes">Yes</td><td>string</td><td class="no">No</td><td>One token. Bare name, or a <code>./</code> path.</td></tr>
+<tr><td><code>args</code></td><td class="no">No</td><td>string[]</td><td class="yes">Yes</td><td>Passed to the executable.</td></tr>
+<tr><td><code>env</code></td><td class="no">No</td><td>object of strings</td><td class="yes">Values only</td><td>Reserved names are forbidden.</td></tr>
+<tr><td><code>cwd</code></td><td class="no">No</td><td>string</td><td class="yes">Yes</td><td>Three legal forms. Default: the plugin root.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout trap">
+<span class="tag">The most common stdio mistake</span>
+<p><code>"command": "npx -y @scope/server"</code> is invalid. The field holds one token. Write
+<code>"command": "npx"</code> and <code>"args": ["-y", "@scope/server"]</code>. The specification treats the field
+as one token so that no client has to parse or escape a user-authored shell string
+<span class="sec">§7.2.1</span>.</p>
+</div>
+
+<h3 id="remote">4.3 The remote transports, key by key</h3>
+
+<div class="code" data-lang="jsonc">
+  <div class="code-head"><span class="lang">jsonc</span><span class="file">changelog-tools/mcp.json — the remote entries</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+
+    "release-api": {
+      // REQUIRED. "streamable-http" selects the CURRENT MCP Streamable HTTP transport.
+      "type": "streamable-http",
+
+      // REQUIRED. An absolute http or https URL.
+      //   MUST NOT contain user information — "https://user:pw@host/mcp" is invalid.
+      //   MUST NOT contain a fragment      — "https://host/mcp#x"        is invalid.
+      //   https is MANDATORY, except when the host is exactly "localhost"
+      //   or an IP literal in a loopback range (§7.2.1).
+      // NO placeholder expands here (§7.2.1).
+      "url": "https://releases.example.com/mcp",
+
+      // OPTIONAL. Fixed HTTP headers for the configured origin.
+      //   Header names are case-insensitive. The same name twice under a different
+      //   casing makes THIS ENTRY invalid.
+      //   NO placeholder expands in a name or in a value.
+      //   A client header for HTTP, MCP, or authorization OVERRIDES a header here.
+      //   The client MUST NOT forward these headers to another origin after a
+      //   redirect without explicit user authorization.
+      // Visible package data. NEVER store a credential here (§7.2.1).
+      "headers": {
+        "X-Tenant": "public-tenant"
+      }
+    },
+
+    "legacy-feed": {
+      // "sse" selects the DEPRECATED HTTP+SSE transport of MCP 2024-11-05.
+      // It does NOT mean an SSE stream inside Streamable HTTP.
+      // Client support for "sse" is OPTIONAL. Many clients skip this entry (§7.2.1).
+      "type": "sse",
+      "url": "https://legacy.example.com/sse"
+    }
+  }
+}</code></pre>
+</div>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>URL</th><th>Valid</th><th>Reason</th></tr></thead>
+<tbody>
+<tr><td><code>https://api.example.com/mcp</code></td><td class="yes">Yes</td><td>Absolute, HTTPS, no user info, no fragment.</td></tr>
+<tr><td><code>http://localhost:8080/mcp</code></td><td class="yes">Yes</td><td>Plain HTTP is allowed for <code>localhost</code>.</td></tr>
+<tr><td><code>http://127.0.0.1/mcp</code></td><td class="yes">Yes</td><td>A loopback IP literal.</td></tr>
+<tr><td><code>http://api.example.com/mcp</code></td><td class="no">No</td><td>Plain HTTP to a non-loopback host.</td></tr>
+<tr><td><code>https://u:p@api.example.com/mcp</code></td><td class="no">No</td><td>User information in the authority.</td></tr>
+<tr><td><code>https://api.example.com/mcp#top</code></td><td class="no">No</td><td>A fragment.</td></tr>
+<tr><td><code>/mcp</code></td><td class="no">No</td><td>Not absolute.</td></tr>
+<tr><td><code>wss://api.example.com/mcp</code></td><td class="no">No</td><td>The scheme must be http or https.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="transport">4.4 Which transport a client must support</h3>
+
+<p>A client that supports MCP must support <code>stdio</code> or <code>streamable-http</code>, and should support
+both. Support for <code>sse</code> is OPTIONAL. The client uses the declared transport for the first
+connection, and the specification defines no fallback <span class="sec">§7.2.1</span>.</p>
+
+<div class="callout warn">
+<span class="tag">Consequence for you</span>
+<p>A plugin that offers only an <code>sse</code> server may load <em>no server at all</em> on a conformant client.
+Offer <code>streamable-http</code> as well, under a second server name.</p>
+</div>
+
+<h3 id="mcp-fail">4.5 What each MCP error does</h3>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Problem</th><th>Blast radius</th><th>Section</th></tr></thead>
+<tbody>
+<tr><td><code>mcp.json</code> is missing</td><td>Nothing. Absence is not an error.</td><td><span class="sec">§6.2</span></td></tr>
+<tr><td><code>mcp.json</code> is a directory</td><td>MCP is disabled for the plugin. Skills still load.</td><td><span class="sec">§6.2</span></td></tr>
+<tr><td>Invalid JSON, a wrong top-level key, or a version mismatch</td><td>MCP is disabled for the plugin. Skills still load.</td><td><span class="sec">§7.2.2</span></td></tr>
+<tr><td>One server entry is invalid</td><td>That entry only. Other servers still load.</td><td><span class="sec">§7.2.2</span></td></tr>
+<tr><td>The client does not support the transport</td><td>That entry only.</td><td><span class="sec">§7.2.2</span></td></tr>
+<tr><td>The server fails to start, connect, or authenticate</td><td>That connection only. Everything else still loads.</td><td><span class="sec">§7.2.2</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout">
+<span class="tag">Authorization</span>
+<p>Version 1 defines no OAuth configuration and no portable credential reference. Discovery, the user
+interaction, and the credential storage belong to the client. An authorization failure counts as a
+<em>connection</em> failure, not as invalid configuration <span class="sec">§7.2.1</span>.</p>
+</div>
+
+<h2 id="vars">5 · The two plugin variables</h2>
+
+<p>The client sets exactly two environment variables for every plugin subprocess
+<span class="sec">§9.1</span>.</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Variable</th><th>Value</th><th>Lifetime</th><th>Use it for</th></tr></thead>
+<tbody>
+<tr><td><code>PLUGIN_ROOT</code></td><td>The absolute path of the plugin directory.</td><td>Replaced on every update.</td><td>Bundled scripts, binaries, and configuration that ship with the package.</td></tr>
+<tr><td><code>PLUGIN_DATA</code></td><td>The absolute path of a writable directory that the client manages for this installed plugin.</td><td><strong>Survives an update.</strong> May be deleted on uninstall.</td><td>Installed dependencies, a virtual environment, generated code, a cache, and any state.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout trap">
+<span class="tag">The rule that costs data</span>
+<p>An update <strong>replaces the contents of <code>PLUGIN_ROOT</code></strong>. Anything that your server writes
+there disappears. Write every persistent file under <code>${PLUGIN_DATA}</code>
+<span class="sec">§9.1</span>.</p>
+</div>
+
+<h3 id="expansion">5.1 The expansion rules</h3>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Field</th><th>Expands</th></tr></thead>
+<tbody>
+<tr><td>Each element of <code>args</code></td><td class="yes">Yes</td></tr>
+<tr><td>Each value in <code>env</code></td><td class="yes">Yes</td></tr>
+<tr><td><code>cwd</code></td><td class="yes">Yes</td></tr>
+<tr><td>A key in <code>env</code></td><td class="no">No</td></tr>
+<tr><td><code>command</code></td><td class="no">No</td></tr>
+<tr><td><code>url</code>, a header name, a header value</td><td class="no">No</td></tr>
+<tr><td>A fixed component location</td><td class="no">No</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Five rules govern the replacement <span class="sec">§9.2</span>:</p>
+<ol class="steps">
+  <li>Only <code>${PLUGIN_ROOT}</code> and <code>${PLUGIN_DATA}</code> expand. Nothing else expands.</li>
+  <li>Expansion works only in the three fields marked above.</li>
+  <li>Expansion is one pass. The client never scans the inserted text again.</li>
+  <li>Unknown placeholder text stays literal. <code>${HOME}</code> remains the six characters
+      <code>${HOME}</code>.</li>
+  <li>An <code>env</code> object that declares <code>PLUGIN_ROOT</code> or <code>PLUGIN_DATA</code> makes that
+      server entry invalid.</li>
+</ol>
+
+<h3 id="env-order">5.2 The order of the environment</h3>
+
+<p>The client builds the subprocess environment in this order <span class="sec">§9.1</span>:</p>
+
+<ol class="steps">
+  <li>The client chooses a base environment. It may inherit, omit, or clean the ambient variables.</li>
+  <li>The client expands your <code>env</code> values, and lays them over the base. A same-name entry replaces
+      the base entry, under the platform name semantics. Windows names are case-insensitive.</li>
+  <li>The client sets <code>PLUGIN_ROOT</code> and <code>PLUGIN_DATA</code> <strong>last</strong>. Your value can
+      never win.</li>
+</ol>
+
+<div class="callout rule">
+<span class="tag">Rule</span>
+<p>Apart from the platform executable search that resolves a bare <code>command</code>, a conformant plugin
+must not depend on any inherited variable that the specification does not require
+<span class="sec">§9.1</span>. If your server needs <code>HOME</code> or <code>PATH</code>, supply the value
+explicitly in <code>env</code>, or read it defensively.</p>
+</div>
+
+<h3 id="server-code">5.3 How the example server uses both variables</h3>
+
+<div class="code" data-lang="python">
+  <div class="code-head"><span class="lang">python</span><span class="file">bin/notes_server.py — the relevant lines</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code># The client sets PLUGIN_ROOT and PLUGIN_DATA. mcp.json expands ${PLUGIN_DATA}
+# into NOTES_FILE. This server never writes inside PLUGIN_ROOT, because a plugin
+# update replaces the package contents.
+NOTES_FILE = os.environ.get("NOTES_FILE") or os.path.join(
+    os.environ.get("PLUGIN_DATA", "."), "notes.jsonl"
+)</code></pre>
+</div>
+
+<p>The fallback matters. The server reads <code>NOTES_FILE</code> first, because <code>mcp.json</code> supplies it.
+It falls back to <code>PLUGIN_DATA</code>, because the client always sets that variable.</p>
+
+<h2 id="ext">6 · Client extensions</h2>
+
+<p>You need a client-specific feature that version 1 does not define — a hook, a slash command, a
+custom agent. Use a reverse-domain namespace that the client owns <span class="sec">§8</span>.</p>
+
+<p>Two representations exist. You may use either, or both:</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Representation</th><th>Where</th><th>Example</th></tr></thead>
+<tbody>
+<tr><td>Manifest data</td><td>A key inside <code>extensions</code> in <code>plugin.json</code></td><td><code>"com.example.client": { "autoEnable": true }</code></td></tr>
+<tr><td>Files</td><td>A top-level directory with exactly that name</td><td><code>com.example.client/hooks/hooks.json</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="code" data-lang="text">
+  <div class="code-head"><span class="lang">text</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>changelog-tools/
+├── plugin.json                 # holds extensions: { "com.example.client": { ... } }
+└── com.example.client/         # holds the FILES for the same namespace
+    └── hooks/
+        └── hooks.json</code></pre>
+</div>
+
+<div class="callout rule">
+<span class="tag">Why this keeps you portable</span>
+<p>Agent Plugins assigns no discovery, validation, loading, or failure meaning to extension data
+<span class="sec">§8</span>. A client that does not implement <code>com.example.client</code> ignores the
+namespace <em>without validating it</em> <span class="sec">§8.1</span>, and still loads your skills and
+your MCP servers. One package therefore works everywhere, and gains extra behavior only on the
+client that understands it.</p>
+</div>
+
+<h2 id="versioning">7 · Versioning</h2>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Item</th><th>Rule</th><th>Section</th></tr></thead>
+<tbody>
+<tr><td>The specification and both schemas</td><td>They share one version number. Every release republishes both schemas, even when a schema did not change.</td><td><span class="sec">§10.1</span></td></tr>
+<tr><td><code>plugin.json</code> <code>$schema</code></td><td>Declares the version that your package targets.</td><td><span class="sec">§10.1</span></td></tr>
+<tr><td><code>mcp.json</code> <code>$schema</code></td><td>The version <strong>must match</strong> <code>plugin.json</code>. A mismatch disables MCP only; the skills still load.</td><td><span class="sec">§10.1</span></td></tr>
+<tr><td>A published canonical identifier</td><td>Never reassigned to different schema contents.</td><td><span class="sec">§10.1</span></td></tr>
+<tr><td>An older target version</td><td>Still allowed. The client decides which versions it supports.</td><td><span class="sec">§10.1</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="build">8 · Build the example, step by step</h2>
+
+<ol class="steps">
+  <li>Create the directory <code>changelog-tools/</code>.</li>
+  <li>Write <code>plugin.json</code> with <code>$schema</code> and <code>name</code>. Add the metadata from section 2.</li>
+  <li>Create <code>skills/changelog-entry/</code>, and write <code>SKILL.md</code> inside it.</li>
+  <li>Add <code>references/format.md</code> and <code>scripts/check_entry.py</code> in the same skill directory.</li>
+  <li>Write <code>bin/notes_server.py</code>. Read the target path from the <code>NOTES_FILE</code> variable.</li>
+  <li>Write <code>mcp.json</code>. Point <code>args</code> at <code>${PLUGIN_ROOT}/bin/notes_server.py</code>.</li>
+  <li>Point <code>NOTES_FILE</code> at <code>${PLUGIN_DATA}/notes.jsonl</code>, never at <code>${PLUGIN_ROOT}</code>.</li>
+  <li>Run <code>cd example/client &amp;&amp; npm test</code> to confirm the client works.</li>
+  <li>Run <code>npm run load-example</code>. Confirm the output lists the skill and two servers.</li>
+</ol>
+
+<h2 id="mistakes">9 · Ten mistakes that break a plugin</h2>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>#</th><th>Mistake</th><th>Correct form</th><th>Damage</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><code>"name": "My-Plugin"</code></td><td><code>"my-plugin"</code> <span class="sec">§5.5</span></td><td class="no">Whole plugin</td></tr>
+<tr><td>2</td><td>A comment inside a real <code>.json</code> file</td><td>Remove every comment <span class="sec">§5.2</span></td><td class="no">Whole plugin</td></tr>
+<tr><td>3</td><td><code>"command": "python -u server.py"</code></td><td><code>"command": "python"</code>, <code>"args": ["-u", "server.py"]</code></td><td>One server</td></tr>
+<tr><td>4</td><td><code>"cwd": "data"</code></td><td><code>"cwd": "./data"</code> <span class="sec">§7.2.1</span></td><td>One server</td></tr>
+<tr><td>5</td><td><code>"env": { "PLUGIN_ROOT": "..." }</code></td><td>Delete it. The client sets it <span class="sec">§9.2</span></td><td>One server</td></tr>
+<tr><td>6</td><td>An API key in <code>env</code> or <code>headers</code></td><td>Remove it. Both are public package data</td><td class="no">Leaked secret</td></tr>
+<tr><td>7</td><td>Writing state into <code>${PLUGIN_ROOT}</code></td><td>Write into <code>${PLUGIN_DATA}</code> <span class="sec">§9.1</span></td><td class="no">Data loss on update</td></tr>
+<tr><td>8</td><td>MCP configuration inside <code>plugin.json</code></td><td>Move it to <code>mcp.json</code> <span class="sec">§7.2.1</span></td><td class="no">Whole plugin (unknown key + no MCP)</td></tr>
+<tr><td>9</td><td>Different versions in the two <code>$schema</code> values</td><td>Use the same version in both <span class="sec">§10.1</span></td><td>All MCP</td></tr>
+<tr><td>10</td><td><code>skills/team/backend/SKILL.md</code></td><td><code>skills/backend/SKILL.md</code> <span class="sec">§7.1</span></td><td>That skill</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="checklist">10 · Author checklist</h2>
+
+<ul class="check">
+  <li><code>plugin.json</code> exists in the plugin root.</li>
+  <li><code>$schema</code> equals <code>https://agent-plugins.org/schemas/1.0.0/plugin.schema.json</code>.</li>
+  <li><code>name</code> passes all four constraints of <span class="sec">§5.5</span>.</li>
+  <li>No extra top-level key, and no extra <code>author</code> key.</li>
+  <li>Each skill sits at <code>skills/&lt;name&gt;/SKILL.md</code>, exactly one level deep.</li>
+  <li>Each <code>SKILL.md</code> conforms to the Agent Skills specification.</li>
+  <li><code>mcp.json</code>, when present, declares the same specification version as <code>plugin.json</code>.</li>
+  <li>Each <code>command</code> value is one token.</li>
+  <li>Every package path starts with <code>./</code> and stays inside the root.</li>
+  <li>No secret appears in <code>env</code> or in <code>headers</code>.</li>
+  <li>Every writable path uses <code>${PLUGIN_DATA}</code>.</li>
+  <li>Client-specific data sits under a reverse-domain namespace.</li>
+  <li>At least one MCP server uses <code>stdio</code> or <code>streamable-http</code>, not only <code>sse</code>.</li>
+</ul>
+
+<div class="pager">
+  <a href="index.html"><small>Previous</small>← Overview</a>
+  <a href="client-implementers.html"><small>Next</small>2 · Implement a client →</a>
+</div>
+
+<footer class="page">
+  <p>An unofficial tutorial for the
+  <a href="https://github.com/agentplugins/agent-plugins-spec">Agent Plugins Specification 1.0.0</a>.
+  The specification is the source of truth.</p>
+</footer>
+
+  </main>
+</div>
+<script src="assets/tutorial.js"></script>
+</body>
+</html>

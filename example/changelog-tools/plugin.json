@@ -1,0 +1,20 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "changelog-tools",
+  "version": "1.2.0",
+  "description": "Writes changelog entries and stores release notes.",
+  "author": {
+    "name": "Simon",
+    "email": "az9713@yahoo.com",
+    "url": "https://example.com"
+  },
+  "homepage": "https://example.com/changelog-tools",
+  "repository": "https://github.com/example/changelog-tools",
+  "license": "MIT",
+  "keywords": ["changelog", "release", "notes"],
+  "extensions": {
+    "com.example.client": {
+      "autoEnable": true
+    }
+  }
+}

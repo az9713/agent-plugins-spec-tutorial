@@ -1,0 +1,773 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2 · Implement a client — Agent Plugins 1.0.0 tutorial</title>
+<meta name="description" content="The six-step loading sequence, the failure-boundary ladder, and a working reference loader in TypeScript.">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <a class="brand" href="index.html">Agent Plugins <span>1.0.0</span></a>
+  <nav>
+    <a href="index.html">Overview</a>
+    <a href="plugin-authors.html">1. Build a plugin</a>
+    <a href="client-implementers.html" aria-current="page">2. Implement a client</a>
+    <a href="reference.html">Reference</a>
+  </nav>
+  <span class="spacer"></span>
+  <button id="theme-toggle" type="button">Dark</button>
+</header>
+
+<div class="layout">
+  <aside class="toc"><h2>On this page</h2><ol></ol></aside>
+  <main>
+
+<h1>Tutorial 2 — Implement an Agent Plugins Client</h1>
+<p class="lede">A conformant client loads a plugin from a directory, validates the manifest, and supports at
+least one component type. This page walks the whole loading sequence, and pairs every rule with the
+reference code that implements it.</p>
+
+<div class="meta">
+  <span>Specification 1.0.0</span>
+  <span>Reference: <code>example/client/loader.ts</code></span>
+  <span>Also in Python: <code>loader.py</code></span>
+</div>
+
+<div class="code" data-lang="text">
+  <div class="code-head"><span class="lang">shell</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>cd example/client
+npm install
+npm test                 # the self-check — every case in section 10
+npm run load-example     # loads ../changelog-tools</code></pre>
+</div>
+
+<h2 id="conformance">1 · What conformance means</h2>
+
+<p>A conformant client satisfies every applicable requirement in sections 1 to 10 of the specification.
+At minimum it does eight things <span class="sec">§11.1</span>:</p>
+
+<ol class="steps">
+  <li>It loads a plugin from a directory path.</li>
+  <li>It selects locally supported rules from <code>$schema</code>, then validates the closed
+      <code>plugin.json</code> schema, using the two non-fatal exceptions.</li>
+  <li>It ignores an unimplemented <code>extensions</code> namespace, <em>without validating its contents</em>.</li>
+  <li>It discovers each supported component type from its fixed location.</li>
+  <li>If it supports MCP, it selects rules from the <code>mcp.json</code> <code>$schema</code>, and supports
+      <code>stdio</code> or <code>streamable-http</code>.</li>
+  <li>If it launches subprocesses, it provides <code>PLUGIN_ROOT</code> and <code>PLUGIN_DATA</code>, and expands
+      both in <code>args</code>, <code>env</code>, and <code>cwd</code>.</li>
+  <li>It resolves <code>command</code> as one executable token, and defaults the working directory to the
+      plugin root.</li>
+  <li>It supports at least one component type.</li>
+</ol>
+
+<div class="callout rule">
+<span class="tag">Incremental adoption is legal</span>
+<p>A skills-only client conforms without any MCP support, provided it satisfies every rule that applies
+to it <span class="sec">§11.2</span>. You do not have to build everything at once.</p>
+</div>
+
+<h3 id="not-defined">1.1 What the specification leaves to you</h3>
+
+<p>None of these affects conformance. All of them are yours to design:</p>
+
+<ul>
+  <li>The install source, the registry, and the marketplace.</li>
+  <li>The enable, update, and cache user experience.</li>
+  <li>The permission prompt, the trust policy, and the sandbox.</li>
+  <li>How a skill reaches a user or a model.</li>
+  <li>The behavior inside your own extension namespace.</li>
+</ul>
+
+<h2 id="sequence">2 · The six-step loading sequence</h2>
+
+<ol class="steps">
+  <li>Resolve the filesystem plugin root.</li>
+  <li>Read and validate <code>plugin.json</code>, using the rules that <code>$schema</code> selects.</li>
+  <li>Reject the plugin on a fatal violation. Report and ignore the two non-fatal cases.</li>
+  <li>Discover each supported component type from its fixed location.</li>
+  <li>Apply the failure boundary that belongs to that component type or entry.</li>
+  <li>Apply your implemented extension namespaces. Ignore every other namespace.</li>
+</ol>
+
+<div class="code" data-lang="ts">
+  <div class="code-head"><span class="lang">typescript</span><span class="file">loader.ts — the whole sequence</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>export function loadPlugin(
+  rootIn: string,
+  pluginDataIn?: string,
+  transports: readonly string[] = ["stdio", "streamable-http"],
+): LoadedPlugin {
+  const root = fs.realpathSync(path.resolve(rootIn));                  // step 1
+
+  // PLUGIN_DATA lives OUTSIDE the package. An update replaces the package
+  // contents, and the data directory must survive that update (§9.1).
+  const defaultData = path.join(path.dirname(root), ".plugin-data", path.basename(root));
+  const wanted = path.resolve(pluginDataIn ?? defaultData);
+  fs.mkdirSync(wanted, { recursive: true });
+  const pluginData = fs.realpathSync(wanted);
+
+  const reports: string[] = [];
+  const report: Report = (msg) =&gt; reports.push(msg);
+  const manifest = loadManifest(root, report);                          // steps 2 and 3
+
+  return {
+    name: manifest["name"] as string,
+    manifest,
+    skills: discoverSkills(root, report),                               // steps 4 and 5
+    servers: loadMcp(root, manifest["$schema"] as string, pluginData, report, transports),
+    extensions: (manifest["extensions"] ?? {}) as Record&lt;string, unknown&gt;,  // step 6
+    reports,
+  };
+}</code></pre>
+</div>
+
+<div class="callout trap">
+<span class="tag">Never fetch a schema</span>
+<p>The <code>$schema</code> value selects <em>local</em> rules. A client must not retrieve a schema while it loads
+a plugin <span class="sec">§5.2, §7.2.1</span>. A network fetch during load turns an offline user into a
+broken user, and it turns a URL owner into a supply-chain dependency.</p>
+</div>
+
+<h2 id="containment">3 · Step 1 — the root and containment</h2>
+
+<div class="code" data-lang="ts">
+  <div class="code-head"><span class="lang">typescript</span><span class="file">loader.ts</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>/** Return true when p stays inside root after symlink resolution (§4.1). */
+export function contained(p: string, root: string): boolean {
+  const real = (x: string) =&gt; {
+    try { return fs.realpathSync(x); } catch { return path.resolve(x); }
+  };
+  const rp = real(p);
+  const rr = real(root);
+  return rp === rr || rp.startsWith(rr + path.sep);
+}</code></pre>
+</div>
+
+<div class="callout trap">
+<span class="tag">Use realpath, not resolve</span>
+<p><code>path.resolve</code> and <code>os.path.abspath</code> normalize a string. They do <strong>not</strong> follow a
+symlink. A package that ships <code>skills/evil -&gt; /etc</code> passes a string check and fails a real check.
+The specification names symlinks, junctions, and reparse points explicitly
+<span class="sec">§4.1</span>.</p>
+</div>
+
+<h3 id="ladder">3.1 The failure-boundary ladder</h3>
+
+<p>When a path fails containment, apply the <strong>narrowest</strong> boundary. Never widen it
+<span class="sec">§4.1</span>.</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>#</th><th>The path that failed</th><th>The required action</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><code>plugin.json</code></td><td>Reject the whole plugin.</td></tr>
+<tr><td>2</td><td>A fixed component location, for example <code>skills/</code></td><td>Treat that component <em>type</em> as invalid. Keep the other types <span class="sec">§6.2</span>.</td></tr>
+<tr><td>3</td><td>A discovered <code>SKILL.md</code></td><td>Skip that <em>skill</em>. Keep the other skills <span class="sec">§7.1</span>.</td></tr>
+<tr><td>4</td><td>An MCP <code>command</code> or <code>cwd</code></td><td>Treat that <em>server entry</em> as invalid. Keep the other servers <span class="sec">§7.2.2</span>.</td></tr>
+<tr><td>5</td><td>Any other package path</td><td>Deny access to that path only.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout trap">
+<span class="tag">The most common conformance failure</span>
+<p>A client that rejects a whole plugin because one server has a bad <code>cwd</code> is <strong>not</strong>
+conformant. A plugin with a skill and a broken server must still deliver the skill
+<span class="sec">§11.3</span>.</p>
+</div>
+
+<h2 id="manifest">4 · Steps 2 and 3 — validate the manifest</h2>
+
+<h3 id="closed">4.1 The closed field set</h3>
+
+<div class="code" data-lang="ts">
+  <div class="code-head"><span class="lang">typescript</span><span class="file">loader.ts</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>/** The ten permitted top-level manifest keys and their JSON types (§5.2). */
+const MANIFEST_FIELDS: Record&lt;string, "string" | "object" | "array"&gt; = {
+  $schema: "string", name: "string", version: "string", description: "string",
+  author: "object", homepage: "string", repository: "string", license: "string",
+  keywords: "array", extensions: "object",
+};
+const AUTHOR_FIELDS = new Set(["name", "email", "url"]);
+
+/** All four name constraints of §5.5 in one pattern. */
+const NAME_RE = /^(?!.*(?:--|\.\.))[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/;</code></pre>
+</div>
+
+<h3 id="two-exceptions">4.2 The only two non-fatal cases</h3>
+
+<div class="code" data-lang="ts">
+  <div class="code-head"><span class="lang">typescript</span><span class="file">loader.ts — loadManifest, abridged</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>// Non-fatal case 1: an unknown top-level key (§5.2).
+for (const key of Object.keys(m)) {
+  if (!(key in MANIFEST_FIELDS)) {
+    report(`unknown manifest field ignored: ${key}`);
+    delete m[key];
+  }
+}
+
+if (m["$schema"] !== PLUGIN_SCHEMA) {
+  throw new Fatal(`unsupported $schema: ${JSON.stringify(m["$schema"])}`);
+}
+const name = m["name"];
+if (typeof name !== "string" || name.length &lt; 1 || name.length &gt; 64 || !NAME_RE.test(name)) {
+  throw new Fatal(`invalid name: ${JSON.stringify(name)}`);
+}
+
+for (const [key, kind] of Object.entries(MANIFEST_FIELDS)) {
+  if (!(key in m)) continue;
+  if (jsonKind(m[key]) === kind) continue;
+  // Non-fatal case 2: extensions is not an object (§8.1).
+  if (key === "extensions") {
+    report("extensions is not an object; field ignored");
+    m["extensions"] = {};
+    continue;
+  }
+  throw new Fatal(`field ${key} has the wrong type`);
+}</code></pre>
+</div>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Case</th><th>Fatal</th><th>Action</th></tr></thead>
+<tbody>
+<tr><td>An unknown top-level key</td><td class="yes">No</td><td>Report. Ignore. Continue.</td></tr>
+<tr><td><code>extensions</code> is not an object</td><td class="yes">No</td><td>Report. Ignore. Continue.</td></tr>
+<tr><td>Missing file, invalid JSON, or a non-object root</td><td class="no">Yes</td><td>Reject the plugin.</td></tr>
+<tr><td><code>$schema</code> missing or unrecognized</td><td class="no">Yes</td><td>Reject. Report the unsupported version.</td></tr>
+<tr><td><code>name</code> missing, empty, or malformed</td><td class="no">Yes</td><td>Reject. Report which field failed.</td></tr>
+<tr><td>A permitted key with a wrong JSON type</td><td class="no">Yes</td><td>Reject.</td></tr>
+<tr><td>A fourth <code>author</code> key, or a non-string value</td><td class="no">Yes</td><td>Reject.</td></tr>
+<tr><td>An <code>extensions</code> member value that is not an object</td><td class="no">Yes</td><td>Reject.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="over">4.3 Do not over-validate</h3>
+
+<div class="callout warn">
+<span class="tag">These rejections are forbidden</span>
+<p>A client must <strong>not</strong> reject a manifest solely because <span class="sec">§5.4</span>:</p>
+<ul>
+  <li><code>version</code> is not valid Semantic Versioning;</li>
+  <li><code>homepage</code>, <code>repository</code>, or <code>author.url</code> is not a recognized URL;</li>
+  <li><code>author.email</code> is not a recognized email address;</li>
+  <li><code>license</code> is not an SPDX identifier.</li>
+</ul>
+<p>Check the JSON type only, except where the specification states an explicit constraint. A client
+that adds a URL check breaks valid plugins, and is not conformant.</p>
+</div>
+
+<h2 id="skills">5 · Step 4a — discover skills</h2>
+
+<div class="code" data-lang="ts">
+  <div class="code-head"><span class="lang">typescript</span><span class="file">loader.ts</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>export function discoverSkills(root: string, report: Report): Skill[] {
+  const base = path.join(root, "skills");
+  if (!fs.existsSync(base)) return [];                    // missing is not an error (§6.2)
+  if (!fs.statSync(base).isDirectory()) {
+    report("skills exists but is not a directory; skills disabled");
+    return [];                                            // wrong kind: type invalid (§6.2)
+  }
+  const skills: Skill[] = [];
+  for (const entry of fs.readdirSync(base).sort()) {      // immediate children ONLY (§7.1)
+    const skillMd = path.join(base, entry, "SKILL.md");
+    if (!fs.existsSync(skillMd) || !fs.statSync(skillMd).isFile()) continue;
+    if (!contained(skillMd, root)) {
+      report(`skill ${entry} escapes the plugin root; skipped`);
+      continue;
+    }
+    skills.push({ name: entry, path: skillMd });
+  }
+  return skills;
+}</code></pre>
+</div>
+
+<p>Four rules control this function:</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Rule</th><th>Behavior</th><th>Section</th></tr></thead>
+<tbody>
+<tr><td>Missing location</td><td>Not an error. Return an empty list.</td><td><span class="sec">§6.2</span></td></tr>
+<tr><td>Wrong filesystem kind</td><td>The component type is invalid. Other types still load.</td><td><span class="sec">§6.2</span></td></tr>
+<tr><td>Depth</td><td>Immediate children only. Never recurse.</td><td><span class="sec">§7.1</span></td></tr>
+<tr><td>File kind</td><td><code>SKILL.md</code> must be a regular file with that exact name.</td><td><span class="sec">§7.1</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Validate each discovered skill against the
+<a href="https://agentskills.io/specification">Agent Skills specification</a>. When it fails, skip that skill,
+report it, and keep the others <span class="sec">§7.1</span>.</p>
+
+<h2 id="mcp">6 · Step 4b — parse <code>mcp.json</code></h2>
+
+<h3 id="file-level">6.1 The file level</h3>
+
+<p>Four conditions disable MCP for the whole plugin, and the skills still load
+<span class="sec">§7.2.2</span>:</p>
+
+<ol class="steps">
+  <li>The file is not valid JSON.</li>
+  <li>The <code>$schema</code> value is unsupported.</li>
+  <li>The <code>$schema</code> version differs from the <code>plugin.json</code> version <span class="sec">§10.1</span>.</li>
+  <li>The top-level key set is not exactly <code>{"$schema", "mcpServers"}</code>, or <code>mcpServers</code>
+      is not an object.</li>
+</ol>
+
+<div class="code" data-lang="ts">
+  <div class="code-head"><span class="lang">typescript</span><span class="file">loader.ts — loadMcp, abridged</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>const keys = Object.keys(d).sort().join(",");
+if (keys !== "$schema,mcpServers") {
+  report("mcp.json has wrong top-level fields; MCP disabled");
+  return {};
+}
+if (d["$schema"] !== MCP_SCHEMA) {
+  report("mcp.json targets an unsupported version; MCP disabled");
+  return {};
+}
+const versionOf = (id: string) =&gt; id.split("/").slice(-2)[0];
+if (versionOf(d["$schema"] as string) !== versionOf(manifestSchema)) {
+  report("mcp.json version differs from plugin.json; MCP disabled");      // §10.1
+  return {};
+}</code></pre>
+</div>
+
+<p>An empty <code>mcpServers</code> object is valid, and it is not an error <span class="sec">§7.2.1</span>.</p>
+
+<h3 id="entry-level">6.2 The entry level</h3>
+
+<p>Each entry is a <strong>closed variant</strong>. An unknown key, an unknown <code>type</code>, or a key that
+belongs to another variant makes that entry invalid <span class="sec">§7.2.1</span>.</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Variant</th><th>Required</th><th>Optional</th></tr></thead>
+<tbody>
+<tr><td><code>stdio</code></td><td><code>type</code>, <code>command</code></td><td><code>args</code>, <code>env</code>, <code>cwd</code></td></tr>
+<tr><td><code>streamable-http</code></td><td><code>type</code>, <code>url</code></td><td><code>headers</code></td></tr>
+<tr><td><code>sse</code></td><td><code>type</code>, <code>url</code></td><td><code>headers</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout rule">
+<span class="tag">Why the schema exposes <code>#/$defs/server</code></span>
+<p>The official MCP schema exposes the server definition so that you can validate <em>one</em> entry at a
+time. Validating the whole document as one unit destroys the per-entry failure boundary
+<span class="sec">§7.2.1</span>.</p>
+</div>
+
+<h3 id="command">6.3 Resolve <code>command</code></h3>
+
+<div class="code" data-lang="ts">
+  <div class="code-head"><span class="lang">typescript</span><span class="file">loader.ts — validateServer, stdio branch</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>let command: string = rawCommand;
+if (command.startsWith("./")) {
+  const resolved = resolveRel(command, root);          // against the plugin root
+  if (resolved === null) throw new Error("command escapes the plugin root");
+  command = resolved;
+} else if (command.includes("/") || command.includes("\\")) {
+  throw new Error("command must be a bare name or a ./ path");
+}</code></pre>
+</div>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Rule</th><th>Detail</th></tr></thead>
+<tbody>
+<tr><td>One token</td><td>Never parse the value as a shell string. Never escape it as one.</td></tr>
+<tr><td>A bare name</td><td>Resolve through the platform executable search.</td></tr>
+<tr><td>A <code>./</code> path</td><td>Resolve against the plugin root. It must stay inside.</td></tr>
+<tr><td>No expansion</td><td>Do not expand a placeholder in this field <span class="sec">§9.2</span>.</td></tr>
+<tr><td>Windows</td><td>You may use a command interpreter for a <code>.bat</code> or <code>.cmd</code> file. Keep <code>command</code> as one token, and pass <code>args</code> separately.</td></tr>
+<tr><td><code>PATH</code></td><td>Whether your configured <code>PATH</code> affects a bare name is <em>client-defined</em>. A conformant plugin must not depend on it.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="cwd">6.4 Resolve <code>cwd</code></h3>
+
+<div class="code" data-lang="ts">
+  <div class="code-head"><span class="lang">typescript</span><span class="file">loader.ts</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>const CWD_RE = /^(?:\.\/|\$\{PLUGIN_ROOT\}(?:\/|$)|\$\{PLUGIN_DATA\}(?:\/|$))/;
+
+// ...
+if (cwd === undefined) {
+  cwdPath = root;                                                    // default (§7.2.1)
+} else {
+  if (typeof cwd !== "string" || !CWD_RE.test(cwd)) {
+    throw new Error(`invalid cwd form: ${JSON.stringify(cwd)}`);
+  }
+  const source = cwd.startsWith("./") ? path.join(root, cwd.slice(2)) : cwd;
+  cwdPath = path.normalize(expand(source, root, pluginData));         // expand FIRST
+  const base = cwd.startsWith("${PLUGIN_DATA}") ? pluginData : root;  // correct base
+  if (!contained(cwdPath, base)) throw new Error("cwd escapes its base directory");
+}</code></pre>
+</div>
+
+<p>Five ordered rules <span class="sec">§7.2.1</span>:</p>
+<ol class="steps">
+  <li>Absent <code>cwd</code> means the plugin root.</li>
+  <li>The value must match one of the three legal forms. Any other form invalidates the entry.</li>
+  <li>Expand the placeholders <strong>before</strong> you resolve the path.</li>
+  <li>Check containment against the correct base: the plugin root for <code>./</code> and
+      <code>${PLUGIN_ROOT}</code>; the plugin data directory for <code>${PLUGIN_DATA}</code>.</li>
+  <li>Any escape after resolution invalidates the entry.</li>
+</ol>
+
+<h3 id="url">6.5 Check a remote URL and its headers</h3>
+
+<div class="code" data-lang="ts">
+  <div class="code-head"><span class="lang">typescript</span><span class="file">loader.ts — remote branch</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>const LOOPBACK_RE = /^(?:localhost|127(?:\.\d+){3}|\[::1\])$/i;
+
+const m = /^(https?):\/\/([^/?#]+)(?:[/?#]|$)/i.exec(url);
+if (!m) throw new Error("url must be an absolute http or https URL");
+const scheme = m[1]!.toLowerCase();
+const host = m[2]!;
+if (host.includes("@")) throw new Error("url must not contain user information");
+if (url.includes("#")) throw new Error("url must not contain a fragment");
+const hostname = host.startsWith("[") ? host.slice(0, host.indexOf("]") + 1)
+                                      : host.split(":")[0]!;
+if (scheme === "http" &amp;&amp; !LOOPBACK_RE.test(hostname)) {
+  throw new Error("http is allowed for a loopback host only");
+}
+
+const lowered = Object.keys(headers).map((k) =&gt; k.toLowerCase());
+if (new Set(lowered).size !== lowered.length) {
+  throw new Error("duplicate header name under different casing");
+}</code></pre>
+</div>
+
+<div class="callout warn">
+<span class="tag">Two security rules you must implement</span>
+<ol>
+  <li>Your own header for HTTP, MCP, or authorization <strong>overrides</strong> a configured header with the
+  same case-insensitive name <span class="sec">§7.2.1</span>.</li>
+  <li>Never forward a configured header to a <strong>different origin</strong> after a redirect, or after a
+  legacy SSE endpoint event, without explicit user authorization <span class="sec">§7.2.1</span>.</li>
+</ol>
+</div>
+
+<p>Version 1 defines no OAuth field and no credential reference. Authorization discovery, the user
+interaction, and the credential storage are yours. An authorization failure is a <em>connection</em>
+failure, not invalid configuration <span class="sec">§7.2.1</span>.</p>
+
+<h3 id="mcp-rules">6.6 The five loading rules</h3>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>#</th><th>Condition</th><th>Required action</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>Any source other than root <code>mcp.json</code></td><td>Never load it.</td></tr>
+<tr><td>2</td><td>The file level fails</td><td>Disable MCP for the plugin. Keep the other component types. Report it.</td></tr>
+<tr><td>3</td><td>One entry fails</td><td>Skip that entry. Keep the others. Report it.</td></tr>
+<tr><td>4</td><td>The declared transport is unsupported</td><td>Skip that entry. Report it.</td></tr>
+<tr><td>5</td><td>The server fails to start, connect, authenticate, or handshake</td><td>Continue loading. Report it.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="env">7 · Step 6 — the subprocess environment</h2>
+
+<h3 id="vars">7.1 The two variables</h3>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Variable</th><th>Value</th><th>Your obligation</th></tr></thead>
+<tbody>
+<tr><td><code>PLUGIN_ROOT</code></td><td>The absolute resolved plugin root.</td><td>Set it on every plugin subprocess.</td></tr>
+<tr><td><code>PLUGIN_DATA</code></td><td>An absolute path to a directory that you manage for this installed plugin instance.</td><td>Create it before launch. Make it writable. <strong>Preserve it across an update.</strong> You may delete it on uninstall.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout trap">
+<span class="tag">Do not put the data directory inside the package</span>
+<p>An update replaces the package contents. A data directory inside <code>PLUGIN_ROOT</code> disappears with
+it, and the specification requires the opposite <span class="sec">§9.1</span>. The reference client
+defaults to a sibling directory:</p>
+</div>
+
+<div class="code" data-lang="ts">
+  <div class="code-head"><span class="lang">typescript</span><span class="file">loader.ts</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>const defaultData = path.join(path.dirname(root), ".plugin-data", path.basename(root));</code></pre>
+</div>
+
+<h3 id="order">7.2 The order of assembly</h3>
+
+<div class="code" data-lang="ts">
+  <div class="code-head"><span class="lang">typescript</span><span class="file">loader.ts</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>// The client sets the reserved variables LAST (§9.1).
+const finalEnv: Record&lt;string, string&gt; = {};
+for (const [k, v] of Object.entries(envObj)) finalEnv[k] = expand(v, root, pluginData);
+finalEnv["PLUGIN_ROOT"] = root;
+finalEnv["PLUGIN_DATA"] = pluginData;</code></pre>
+</div>
+
+<ol class="steps">
+  <li>Choose the base environment. You may inherit, omit, or clean the ambient variables.</li>
+  <li>Expand the configured <code>env</code> values, and lay them over the base. A same-name entry replaces,
+      under the platform name semantics — Windows names are case-insensitive.</li>
+  <li>Set <code>PLUGIN_ROOT</code> and <code>PLUGIN_DATA</code> last. They replace any equivalent name.</li>
+</ol>
+
+<p>An <code>env</code> object that declares either reserved name makes that server entry invalid
+<span class="sec">§9.2</span>. Reject the entry. Do not silently drop the key.</p>
+
+<h3 id="expand">7.3 The expansion algorithm</h3>
+
+<div class="code" data-lang="ts">
+  <div class="code-head"><span class="lang">typescript</span><span class="file">loader.ts</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>const PLACEHOLDER_RE = /\$\{PLUGIN_ROOT\}|\$\{PLUGIN_DATA\}/g;
+
+/**
+ * Replace ${PLUGIN_ROOT} and ${PLUGIN_DATA} in ONE pass (§9.2).
+ * String.replace with a function never rescans the inserted text. Two chained
+ * replace calls would rescan, and a plugin could then inject a placeholder.
+ */
+export function expand(value: string, pluginRoot: string, pluginData: string): string {
+  const table: Record&lt;string, string&gt; = {
+    "${PLUGIN_ROOT}": pluginRoot,
+    "${PLUGIN_DATA}": pluginData,
+  };
+  return value.replace(PLACEHOLDER_RE, (m) =&gt; table[m]!);
+}</code></pre>
+</div>
+
+<div class="callout trap">
+<span class="tag">The bug that a naive implementation ships</span>
+<p>Two chained replacements rescan the output of the first:</p>
+<div class="code" data-lang="ts">
+  <div class="code-head"><span class="lang">typescript</span><span class="file">wrong</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>value.replace("${PLUGIN_ROOT}", root).replace("${PLUGIN_DATA}", data);</code></pre>
+</div>
+<p>If <code>root</code> itself contains the text <code>${PLUGIN_DATA}</code>, the second call replaces text that the
+first call inserted. The specification forbids that: expansion is a single non-recursive replacement,
+and inserted text must not be scanned again <span class="sec">§9.2</span>.</p>
+</div>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Field</th><th>Expands</th></tr></thead>
+<tbody>
+<tr><td>Each <code>args</code> element</td><td class="yes">Yes</td></tr>
+<tr><td>Each <code>env</code> value</td><td class="yes">Yes</td></tr>
+<tr><td><code>cwd</code></td><td class="yes">Yes</td></tr>
+<tr><td>An <code>env</code> key</td><td class="no">No</td></tr>
+<tr><td><code>command</code></td><td class="no">No</td></tr>
+<tr><td><code>url</code>, a header name, a header value</td><td class="no">No</td></tr>
+<tr><td>A fixed component location</td><td class="no">No</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Unrecognized placeholder text stays literal. Perform no other expansion of any kind
+<span class="sec">§9.2</span>.</p>
+
+<h2 id="ext">8 · Step 6 — client extensions</h2>
+
+<div class="code" data-lang="ts">
+  <div class="code-head"><span class="lang">typescript</span><span class="file">a sketch, not part of the loader</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>for (const [namespace, value] of Object.entries(plugin.extensions)) {
+  const handler = this.handlers.get(namespace);
+  if (!handler) continue;              // ignore, and do NOT validate the value (§8.1)
+  handler.apply(value, path.join(root, namespace));   // the files live here (§8.2)
+}</code></pre>
+</div>
+
+<ol class="steps">
+  <li>Ignore a namespace that you do not implement. Do not validate its contents
+      <span class="sec">§8.1</span>.</li>
+  <li>When you implement file behavior for a namespace, read it from the top-level directory with
+      exactly that name <span class="sec">§8.2</span>.</li>
+  <li>Define your own validation and failure behavior inside your own namespace. The specification
+      assigns none <span class="sec">§8</span>.</li>
+</ol>
+
+<p>Base your namespace on a domain that you control, and keep it stable <span class="sec">§8</span>.</p>
+
+<h2 id="reporting">9 · Reporting</h2>
+
+<p>The specification uses SHOULD for reporting. Silent failure still destroys a plugin author's ability
+to debug. Report these <span class="sec">§11.3</span>:</p>
+
+<ul>
+  <li>Each ignored unknown manifest field.</li>
+  <li>Each rejected plugin, with the reason.</li>
+  <li>Each skipped skill, with the reason.</li>
+  <li>Each invalid, unsupported, or mismatched MCP configuration.</li>
+  <li>Each skipped server entry, and each connection failure.</li>
+</ul>
+
+<p>Reporting an unsupported component type, an unsupported transport, or an unimplemented extension
+namespace is optional. None of those is an error <span class="sec">§11.3</span>.</p>
+
+<h2 id="tests">10 · Test your client</h2>
+
+<p>Every case below runs inside <code>demo()</code> in the reference loader. Run it with <code>npm test</code>.</p>
+
+<h3 id="must-reject">10.1 Must reject the whole plugin</h3>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Manifest</th><th>Reason</th></tr></thead>
+<tbody>
+<tr><td><code>{ "name": "x" }</code></td><td>No <code>$schema</code> <span class="sec">§5.3</span></td></tr>
+<tr><td><code>{ "$schema": "…1.0.0/plugin.schema.json" }</code></td><td>No <code>name</code> <span class="sec">§5.3</span></td></tr>
+<tr><td><code>"name": "Bad-Name"</code></td><td>Uppercase <span class="sec">§5.5</span></td></tr>
+<tr><td><code>"name": "has--double"</code></td><td>Consecutive hyphens <span class="sec">§5.5</span></td></tr>
+<tr><td><code>"name": "-lead"</code></td><td>Non-alphanumeric first character <span class="sec">§5.5</span></td></tr>
+<tr><td><code>"$schema": "https://example.com/other.json"</code></td><td>Unrecognized version <span class="sec">§5.2</span></td></tr>
+<tr><td><code>"keywords": "no"</code></td><td>Wrong type <span class="sec">§5.4</span></td></tr>
+<tr><td><code>"author": { "nick": "n" }</code></td><td>Unknown author key <span class="sec">§5.4</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="must-continue">10.2 Must continue loading</h3>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Input</th><th>Expected result</th></tr></thead>
+<tbody>
+<tr><td><code>"tools": []</code> at the top level</td><td>Reported and ignored. The plugin loads.</td></tr>
+<tr><td><code>"extensions": "no"</code></td><td>Reported and ignored. The plugin loads.</td></tr>
+<tr><td><code>skills/two/README.md</code>, no <code>SKILL.md</code></td><td>Not discovered. No error.</td></tr>
+<tr><td><code>skills/one/nested/SKILL.md</code></td><td>Not discovered. The client does not recurse.</td></tr>
+<tr><td><code>"command": "../evil"</code></td><td>That entry is skipped. The others load.</td></tr>
+<tr><td><code>"env": { "PLUGIN_ROOT": "/tmp" }</code></td><td>That entry is skipped. The others load.</td></tr>
+<tr><td><code>"url": "http://example.com/mcp"</code></td><td>Skipped. Plain HTTP needs a loopback host.</td></tr>
+<tr><td><code>"url": "http://localhost:8080/mcp"</code></td><td>Accepted.</td></tr>
+<tr><td><code>"type": "sse"</code>, no SSE support</td><td>Skipped and reported.</td></tr>
+<tr><td><code>"type": "websocket"</code></td><td>Skipped. Unknown transport.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="expand-tests">10.3 The expansion cases</h3>
+
+<div class="code" data-lang="ts">
+  <div class="code-head"><span class="lang">typescript</span><span class="file">loader.ts — demo()</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>assert(expand("${PLUGIN_ROOT}", "${PLUGIN_DATA}", "/d") === "${PLUGIN_DATA}", "no rescan");
+assert(expand("a${PLUGIN_ROOT}b${PLUGIN_DATA}c", "/r", "/d") === "a/rb/dc", "both expand");
+assert(expand("${OTHER}", "/r", "/d") === "${OTHER}", "unknown stays literal");</code></pre>
+</div>
+
+<p>The first case is the important one. A client that chains two replacements returns <code>/d</code> here,
+and that answer is wrong.</p>
+
+<h2 id="checklist">11 · Conformance checklist</h2>
+
+<p>From Appendix A of the specification. The specification text governs when the checklist disagrees
+with it.</p>
+
+<h4>Plugin loader</h4>
+<ul class="check">
+  <li>Parse and validate <code>plugin.json</code> <span class="sec">§5.1, §5.2</span>.</li>
+  <li>Validate the required <code>$schema</code> and <code>name</code> fields <span class="sec">§5.3</span>.</li>
+  <li>Validate the name against the four constraints <span class="sec">§5.5</span>.</li>
+  <li>Report and ignore an unknown <code>plugin.json</code> field <span class="sec">§5.2</span>.</li>
+  <li>Ignore an unimplemented <code>extensions</code> namespace without validating its value <span class="sec">§8.1</span>.</li>
+  <li>Reject a package path that resolves outside the plugin root <span class="sec">§4.1</span>.</li>
+  <li>Discover an implemented file extension from its top-level namespace directory <span class="sec">§8.2</span>.</li>
+</ul>
+
+<h4>Component discovery</h4>
+<ul class="check">
+  <li>Scan the fixed location for each supported component type <span class="sec">§6.1</span>.</li>
+  <li>Ignore a missing fixed location without an error <span class="sec">§6.2</span>.</li>
+</ul>
+
+<h4>MCP configuration</h4>
+<ul class="check">
+  <li>Select a supported <code>$schema</code>, then validate the closed schema and each variant <span class="sec">§7.2.1</span>.</li>
+  <li>Implement <code>stdio</code> or Streamable HTTP <span class="sec">§7.2.1</span>.</li>
+  <li>Use the declared transport for the first connection attempt <span class="sec">§7.2.1</span>.</li>
+  <li>Enforce the remote URL rules and the literal-header rules <span class="sec">§7.2.1</span>.</li>
+</ul>
+
+<h4>Environment and expansion</h4>
+<ul class="check">
+  <li>Provide <code>PLUGIN_ROOT</code> and a dedicated writable <code>PLUGIN_DATA</code> <span class="sec">§9.1</span>.</li>
+  <li>Resolve <code>command</code> as one bare or plugin-relative token <span class="sec">§7.2.1</span>.</li>
+  <li>Use the plugin root as the default working directory <span class="sec">§7.2.1</span>.</li>
+  <li>Validate the <code>cwd</code> form and the containment after resolution <span class="sec">§7.2.1</span>.</li>
+  <li>Lay the configured <code>env</code> over a base environment that you choose <span class="sec">§9.1</span>.</li>
+  <li>Set <code>PLUGIN_ROOT</code> and <code>PLUGIN_DATA</code> after the configured <code>env</code> <span class="sec">§9.1</span>.</li>
+  <li>Do not require a configured <code>PATH</code> to affect bare-command resolution <span class="sec">§7.2.1</span>.</li>
+  <li>Expand only the two placeholders, and only in <code>args</code>, <code>env</code>, and <code>cwd</code> <span class="sec">§9.2</span>.</li>
+</ul>
+
+<h4>Resilience</h4>
+<ul class="check">
+  <li>Ignore an unsupported component type <span class="sec">§11.3</span>.</li>
+  <li>Skip a server with an unsupported transport, without affecting the others <span class="sec">§7.2.2</span>.</li>
+  <li>Continue loading when an independent component fails <span class="sec">§11.3</span>.</li>
+  <li>Support at least one component type <span class="sec">§11.1</span>.</li>
+</ul>
+
+<h2 id="reference">12 · The reference implementation</h2>
+
+<p>Two files, same behavior, standard library only.
+<code>example/client/loader.ts</code> and <code>example/client/loader.py</code>.</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Function</th><th>Section</th><th>Purpose</th></tr></thead>
+<tbody>
+<tr><td><code>contained</code></td><td><span class="sec">§4.1</span></td><td>Path containment after symlink resolution.</td></tr>
+<tr><td><code>expand</code></td><td><span class="sec">§9.2</span></td><td>Single-pass placeholder replacement.</td></tr>
+<tr><td><code>resolveRel</code></td><td><span class="sec">§4.1</span></td><td>Resolve a <code>./</code> path, and verify containment.</td></tr>
+<tr><td><code>loadManifest</code></td><td><span class="sec">§5</span></td><td>Closed-schema validation. Throws <code>Fatal</code> to reject the plugin.</td></tr>
+<tr><td><code>discoverSkills</code></td><td><span class="sec">§6, §7.1</span></td><td>One-level discovery under <code>skills/</code>.</td></tr>
+<tr><td><code>validateServer</code></td><td><span class="sec">§7.2.1, §9</span></td><td>Closed-variant validation, and the launch plan.</td></tr>
+<tr><td><code>loadMcp</code></td><td><span class="sec">§7.2.2</span></td><td>File-level and entry-level failure boundaries.</td></tr>
+<tr><td><code>loadPlugin</code></td><td><span class="sec">§11.1</span></td><td>The full six-step sequence.</td></tr>
+<tr><td><code>demo</code></td><td>—</td><td>The self-check for every case in section 10.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout">
+<span class="tag">What the loader does not do</span>
+<p>It returns a launch plan. It does not spawn the process, open the connection, prompt for trust, or
+draw a user interface. Those parts are yours, and the specification does not constrain them.</p>
+</div>
+
+<h2 id="future">13 · Design for what comes next</h2>
+
+<p>Version 1 leaves these to you. A future version may standardize them, so keep each one behind an
+interface:</p>
+
+<ol class="steps">
+  <li>A permission model, a capability declaration, and a sandbox.</li>
+  <li>Signature verification and a provenance attestation chain.</li>
+  <li>A portable secret mechanism, instead of plaintext in a config file.</li>
+  <li>An enterprise allowlist, a blocklist, and a central override.</li>
+  <li>A standard audit event schema for install, enable, disable, update, and uninstall.</li>
+  <li>Dependencies between plugins, with version constraints.</li>
+  <li>A conformance test suite.</li>
+</ol>
+
+<div class="pager">
+  <a href="plugin-authors.html"><small>Previous</small>← 1 · Build a plugin</a>
+  <a href="reference.html"><small>Next</small>Reference →</a>
+</div>
+
+<footer class="page">
+  <p>An unofficial tutorial for the
+  <a href="https://github.com/agentplugins/agent-plugins-spec">Agent Plugins Specification 1.0.0</a>.
+  The specification is the source of truth.</p>
+</footer>
+
+  </main>
+</div>
+<script src="assets/tutorial.js"></script>
+</body>
+</html>

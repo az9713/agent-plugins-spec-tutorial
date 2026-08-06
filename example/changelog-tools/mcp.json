@@ -1,0 +1,26 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "notes": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["${PLUGIN_ROOT}/bin/notes_server.py"],
+      "env": {
+        "NOTES_FILE": "${PLUGIN_DATA}/notes.jsonl",
+        "PYTHONUNBUFFERED": "1"
+      },
+      "cwd": "${PLUGIN_ROOT}"
+    },
+    "release-api": {
+      "type": "streamable-http",
+      "url": "https://releases.example.com/mcp",
+      "headers": {
+        "X-Tenant": "public-tenant"
+      }
+    },
+    "legacy-feed": {
+      "type": "sse",
+      "url": "https://legacy.example.com/sse"
+    }
+  }
+}

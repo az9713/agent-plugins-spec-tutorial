@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reference — Agent Plugins 1.0.0 tutorial</title>
+<meta name="description" content="Every field, every failure boundary, every expansion rule, and both JSON schemas, in one page.">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <a class="brand" href="index.html">Agent Plugins <span>1.0.0</span></a>
+  <nav>
+    <a href="index.html">Overview</a>
+    <a href="plugin-authors.html">1. Build a plugin</a>
+    <a href="client-implementers.html">2. Implement a client</a>
+    <a href="reference.html" aria-current="page">Reference</a>
+  </nav>
+  <span class="spacer"></span>
+  <button id="theme-toggle" type="button">Dark</button>
+</header>
+
+<div class="layout">
+  <aside class="toc"><h2>On this page</h2><ol></ol></aside>
+  <main>
+
+<h1>Reference</h1>
+<p class="lede">One page for lookup. Every field, every failure boundary, every expansion rule, the two
+canonical schemas, and the glossary.</p>
+
+<h2 id="identifiers">1 · The canonical identifiers</h2>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>File</th><th>Required <code>$schema</code> value for 1.0.0</th></tr></thead>
+<tbody>
+<tr><td><code>plugin.json</code></td><td><code>https://agent-plugins.org/schemas/1.0.0/plugin.schema.json</code></td></tr>
+<tr><td><code>mcp.json</code></td><td><code>https://agent-plugins.org/schemas/1.0.0/mcp.schema.json</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout rule">
+<span class="tag">Three rules about these strings</span>
+<ol>
+  <li>A client selects <em>local</em> rules from the value. It never fetches the URL during a load
+      <span class="sec">§5.2</span>.</li>
+  <li>The version in <code>mcp.json</code> must match the version in <code>plugin.json</code>
+      <span class="sec">§10.1</span>.</li>
+  <li>A published identifier is never reassigned to different schema contents
+      <span class="sec">§10.1</span>.</li>
+</ol>
+</div>
+
+<h2 id="layout">2 · Fixed locations</h2>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Item</th><th>Path</th><th>Kind</th><th>Required</th><th>Section</th></tr></thead>
+<tbody>
+<tr><td>Manifest</td><td><code>plugin.json</code></td><td>Regular file</td><td class="no">Yes</td><td><span class="sec">§5.1</span></td></tr>
+<tr><td>Skills</td><td><code>skills/</code></td><td>Directory of directories</td><td class="yes">No</td><td><span class="sec">§6.1</span></td></tr>
+<tr><td>MCP servers</td><td><code>mcp.json</code></td><td>Regular file</td><td class="yes">No</td><td><span class="sec">§6.1</span></td></tr>
+<tr><td>Client extension files</td><td><code>&lt;reverse.domain&gt;/</code></td><td>Directory</td><td class="yes">No</td><td><span class="sec">§8.2</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>The manifest cannot move a fixed location, and it cannot hold inline component configuration
+<span class="sec">§6.1</span>.</p>
+
+<h2 id="manifest">3 · <code>plugin.json</code> — all ten keys</h2>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Key</th><th>Required</th><th>Type</th><th>Constraint</th><th>Failure</th></tr></thead>
+<tbody>
+<tr><td><code>$schema</code></td><td class="no">Yes</td><td>string</td><td>Exactly the canonical identifier.</td><td class="no">Fatal</td></tr>
+<tr><td><code>name</code></td><td class="no">Yes</td><td>string</td><td>1–64 chars; <code>a-z 0-9 - .</code>; alphanumeric ends; no <code>--</code>, no <code>..</code>.</td><td class="no">Fatal</td></tr>
+<tr><td><code>version</code></td><td class="yes">No</td><td>string</td><td>Any string. SemVer recommended, not enforced.</td><td class="no">Fatal on wrong type only</td></tr>
+<tr><td><code>description</code></td><td class="yes">No</td><td>string</td><td>None.</td><td class="no">Fatal on wrong type only</td></tr>
+<tr><td><code>author</code></td><td class="yes">No</td><td>object</td><td>Only <code>name</code>, <code>email</code>, <code>url</code>; each a string.</td><td class="no">Fatal on any extra key</td></tr>
+<tr><td><code>homepage</code></td><td class="yes">No</td><td>string</td><td>Format not verified.</td><td class="no">Fatal on wrong type only</td></tr>
+<tr><td><code>repository</code></td><td class="yes">No</td><td>string</td><td>Format not verified.</td><td class="no">Fatal on wrong type only</td></tr>
+<tr><td><code>license</code></td><td class="yes">No</td><td>string</td><td>SPDX recommended, not enforced.</td><td class="no">Fatal on wrong type only</td></tr>
+<tr><td><code>keywords</code></td><td class="yes">No</td><td>string[]</td><td>Every element a string.</td><td class="no">Fatal on a non-string element</td></tr>
+<tr><td><code>extensions</code></td><td class="yes">No</td><td>object</td><td>Keys are namespaces; every value an object.</td><td class="yes">Non-fatal if the field itself is not an object; fatal if a member value is not an object</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="mcp">4 · <code>mcp.json</code> — all keys</h2>
+
+<h3 id="mcp-top">4.1 Top level</h3>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Key</th><th>Required</th><th>Type</th><th>Note</th></tr></thead>
+<tbody>
+<tr><td><code>$schema</code></td><td class="no">Yes</td><td>string</td><td>Version must match <code>plugin.json</code>.</td></tr>
+<tr><td><code>mcpServers</code></td><td class="no">Yes</td><td>object</td><td>An empty object is valid.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>No other top-level key is permitted. A violation disables MCP for the whole plugin
+<span class="sec">§7.2.2</span>.</p>
+
+<h3 id="variants">4.2 The three closed variants</h3>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Key</th><th><code>stdio</code></th><th><code>streamable-http</code></th><th><code>sse</code></th><th>Expands</th></tr></thead>
+<tbody>
+<tr><td><code>type</code></td><td class="no">Required</td><td class="no">Required</td><td class="no">Required</td><td class="no">No</td></tr>
+<tr><td><code>command</code></td><td class="no">Required</td><td>—</td><td>—</td><td class="no">No</td></tr>
+<tr><td><code>args</code></td><td class="yes">Optional</td><td>—</td><td>—</td><td class="yes">Yes</td></tr>
+<tr><td><code>env</code></td><td class="yes">Optional</td><td>—</td><td>—</td><td class="yes">Values only</td></tr>
+<tr><td><code>cwd</code></td><td class="yes">Optional</td><td>—</td><td>—</td><td class="yes">Yes</td></tr>
+<tr><td><code>url</code></td><td>—</td><td class="no">Required</td><td class="no">Required</td><td class="no">No</td></tr>
+<tr><td><code>headers</code></td><td>—</td><td class="yes">Optional</td><td class="yes">Optional</td><td class="no">No</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>A key from another variant, or any unknown key, invalidates that one entry
+<span class="sec">§7.2.1</span>.</p>
+
+<h3 id="value-rules">4.3 Value rules</h3>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Field</th><th>Legal values</th></tr></thead>
+<tbody>
+<tr><td><code>command</code></td><td>One token: a bare executable name, or a <code>./</code> path inside the plugin root. Never a shell string.</td></tr>
+<tr><td><code>cwd</code></td><td>Exactly three forms: <code>./…</code>; <code>${PLUGIN_ROOT}</code> or <code>${PLUGIN_ROOT}/…</code>; <code>${PLUGIN_DATA}</code> or <code>${PLUGIN_DATA}/…</code>. Default: the plugin root.</td></tr>
+<tr><td><code>env</code></td><td>String values only. The keys <code>PLUGIN_ROOT</code> and <code>PLUGIN_DATA</code> are forbidden.</td></tr>
+<tr><td><code>url</code></td><td>Absolute http or https. No user information. No fragment. Plain http only for <code>localhost</code> or a loopback IP literal.</td></tr>
+<tr><td><code>headers</code></td><td>String values. Case-insensitive names, and no duplicate name under different casing. Never a credential.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="failures">5 · The complete failure matrix</h2>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Problem</th><th>Plugin rejected</th><th>Component type disabled</th><th>One entry skipped</th><th>Section</th></tr></thead>
+<tbody>
+<tr><td><code>plugin.json</code> missing, invalid JSON, or a non-object</td><td class="no">Yes</td><td>—</td><td>—</td><td><span class="sec">§5.1, §5.2</span></td></tr>
+<tr><td><code>$schema</code> missing or unrecognized</td><td class="no">Yes</td><td>—</td><td>—</td><td><span class="sec">§5.2</span></td></tr>
+<tr><td><code>name</code> missing or malformed</td><td class="no">Yes</td><td>—</td><td>—</td><td><span class="sec">§5.3, §5.5</span></td></tr>
+<tr><td>A permitted key with a wrong type</td><td class="no">Yes</td><td>—</td><td>—</td><td><span class="sec">§5.2</span></td></tr>
+<tr><td>An extra <code>author</code> key</td><td class="no">Yes</td><td>—</td><td>—</td><td><span class="sec">§5.4</span></td></tr>
+<tr><td>An <code>extensions</code> member value is not an object</td><td class="no">Yes</td><td>—</td><td>—</td><td><span class="sec">§8.1</span></td></tr>
+<tr><td>An unknown top-level key</td><td class="yes">No</td><td class="yes">No</td><td class="yes">No — reported and ignored</td><td><span class="sec">§5.2</span></td></tr>
+<tr><td><code>extensions</code> is not an object</td><td class="yes">No</td><td class="yes">No</td><td class="yes">No — reported and ignored</td><td><span class="sec">§8.1</span></td></tr>
+<tr><td><code>skills</code> exists but is not a directory</td><td class="yes">No</td><td class="no">Skills</td><td>—</td><td><span class="sec">§6.2</span></td></tr>
+<tr><td>A <code>SKILL.md</code> escapes the root, or breaks Agent Skills</td><td class="yes">No</td><td class="yes">No</td><td class="no">That skill</td><td><span class="sec">§7.1</span></td></tr>
+<tr><td><code>mcp.json</code> is not a regular file</td><td class="yes">No</td><td class="no">MCP</td><td>—</td><td><span class="sec">§6.2</span></td></tr>
+<tr><td><code>mcp.json</code> invalid JSON, wrong top-level keys, or version mismatch</td><td class="yes">No</td><td class="no">MCP</td><td>—</td><td><span class="sec">§7.2.2, §10.1</span></td></tr>
+<tr><td>An invalid server entry</td><td class="yes">No</td><td class="yes">No</td><td class="no">That server</td><td><span class="sec">§7.2.2</span></td></tr>
+<tr><td>An unsupported transport</td><td class="yes">No</td><td class="yes">No</td><td class="no">That server</td><td><span class="sec">§7.2.2</span></td></tr>
+<tr><td>A server fails to start, connect, or authenticate</td><td class="yes">No</td><td class="yes">No</td><td class="no">That connection</td><td><span class="sec">§7.2.2</span></td></tr>
+<tr><td>An unsupported component type</td><td class="yes">No</td><td class="yes">Ignored, not an error</td><td>—</td><td><span class="sec">§11.3</span></td></tr>
+<tr><td>A missing fixed location</td><td class="yes">No</td><td class="yes">Not an error</td><td>—</td><td><span class="sec">§6.2</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="expansion">6 · Expansion at a glance</h2>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Where</th><th>Expands</th><th>Section</th></tr></thead>
+<tbody>
+<tr><td>Each element of <code>args</code></td><td class="yes">Yes</td><td><span class="sec">§9.2</span></td></tr>
+<tr><td>Each value in <code>env</code></td><td class="yes">Yes</td><td><span class="sec">§9.2</span></td></tr>
+<tr><td><code>cwd</code></td><td class="yes">Yes</td><td><span class="sec">§9.2</span></td></tr>
+<tr><td>A key in <code>env</code></td><td class="no">No</td><td><span class="sec">§9.2</span></td></tr>
+<tr><td><code>command</code></td><td class="no">No</td><td><span class="sec">§7.2.1</span></td></tr>
+<tr><td><code>url</code>, header name, header value</td><td class="no">No</td><td><span class="sec">§7.2.1</span></td></tr>
+<tr><td>A fixed component location</td><td class="no">No</td><td><span class="sec">§9.2</span></td></tr>
+<tr><td>Any other variable, for example <code>${HOME}</code></td><td class="no">Never</td><td><span class="sec">§9.2</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Expansion is one non-recursive pass. Inserted text is never scanned again
+<span class="sec">§9.2</span>.</p>
+
+<h2 id="schemas">7 · The two canonical schemas</h2>
+
+<h3 id="plugin-schema">7.1 <code>plugin.schema.json</code></h3>
+
+<div class="code" data-lang="json">
+  <div class="code-head"><span class="lang">json</span><span class="file">schemas/1.0.0/plugin.schema.json</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "title": "Agent Plugins Manifest",
+  "type": "object",
+  "properties": {
+    "$schema": { "const": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json" },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^(?!.*(?:--|\\.\\.))[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"
+    },
+    "version": { "type": "string" },
+    "description": { "type": "string" },
+    "author": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "url": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "homepage": { "type": "string" },
+    "repository": { "type": "string" },
+    "license": { "type": "string" },
+    "keywords": { "type": "array", "items": { "type": "string" } },
+    "extensions": { "type": "object", "additionalProperties": { "type": "object" } }
+  },
+  "required": ["$schema", "name"],
+  "additionalProperties": false
+}</code></pre>
+</div>
+
+<h3 id="mcp-schema">7.2 <code>mcp.schema.json</code></h3>
+
+<div class="code" data-lang="json">
+  <div class="code-head"><span class="lang">json</span><span class="file">schemas/1.0.0/mcp.schema.json — abridged</span><span class="spacer"></span><button class="copy" type="button">copy</button></div>
+<pre><code>{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "type": "object",
+  "properties": {
+    "$schema": { "const": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json" },
+    "mcpServers": { "type": "object", "additionalProperties": { "$ref": "#/$defs/server" } }
+  },
+  "required": ["$schema", "mcpServers"],
+  "additionalProperties": false,
+  "$defs": {
+    "server": {
+      "oneOf": [
+        { "$ref": "#/$defs/stdioServer" },
+        { "$ref": "#/$defs/streamableHttpServer" },
+        { "$ref": "#/$defs/sseServer" }
+      ]
+    },
+    "stdioServer": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "stdio" },
+        "command": { "type": "string", "minLength": 1 },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "env": {
+          "type": "object",
+          "propertyNames": { "not": { "enum": ["PLUGIN_ROOT", "PLUGIN_DATA"] } },
+          "additionalProperties": { "type": "string" }
+        },
+        "cwd": {
+          "type": "string",
+          "pattern": "^(?:\\./|\\$\\{PLUGIN_ROOT\\}(?:/|$)|\\$\\{PLUGIN_DATA\\}(?:/|$))"
+        }
+      },
+      "required": ["type", "command"],
+      "additionalProperties": false
+    }
+  }
+}</code></pre>
+</div>
+
+<div class="callout warn">
+<span class="tag">The schema is not the whole contract</span>
+<p>The specification text is authoritative when it conflicts with a schema
+<span class="sec">§5.2, §7.2.1</span>. JSON Schema cannot express path containment, single-token command
+resolution, expansion order, or the failure boundaries. A validator alone does not make a client
+conformant.</p>
+</div>
+
+<h2 id="glossary">8 · Glossary</h2>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Term</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td>Plugin</td><td>A self-contained directory with a manifest and optional components <span class="sec">§3</span>.</td></tr>
+<tr><td>Plugin root</td><td>The top-level directory of the package.</td></tr>
+<tr><td>Manifest</td><td>The file <code>plugin.json</code> at the plugin root.</td></tr>
+<tr><td>Component</td><td>A skill, or an MCP server entry. Version 1 defines these two only.</td></tr>
+<tr><td>Client</td><td>A tool that discovers, installs, loads, and runs plugin components.</td></tr>
+<tr><td>Extension namespace</td><td>A reverse-domain identifier that one client owns.</td></tr>
+<tr><td>Extension directory</td><td>A top-level directory named exactly after an extension namespace.</td></tr>
+<tr><td>Closed schema</td><td>A schema that permits a fixed key set. An unknown key is a violation.</td></tr>
+<tr><td>Failure boundary</td><td>The narrowest unit that a failure may disable: the plugin, one component type, or one entry.</td></tr>
+<tr><td>Streamable HTTP</td><td>The current MCP remote transport.</td></tr>
+<tr><td>HTTP+SSE</td><td>The deprecated MCP 2024-11-05 remote transport, selected by <code>"type": "sse"</code>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="rfc">9 · Conformance language</h2>
+
+<p>In the normative sections, MUST, MUST NOT, REQUIRED, SHOULD, SHOULD NOT, RECOMMENDED, MAY, and
+OPTIONAL carry their RFC 2119 and RFC 8174 meaning, and only when they appear in capitals
+<span class="sec">§2</span>.</p>
+
+<p>Appendix A and the Design Decisions section of the specification are non-normative. Every other
+section is normative <span class="sec">§2</span>.</p>
+
+<h2 id="links">10 · Sources</h2>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Document</th><th>Link</th></tr></thead>
+<tbody>
+<tr><td>Specification 1.0.0</td><td><a href="https://github.com/agentplugins/agent-plugins-spec/blob/main/spec/1.0.0.md">spec/1.0.0.md</a></td></tr>
+<tr><td>Plugin manifest schema</td><td><a href="https://github.com/agentplugins/agent-plugins-spec/blob/main/schemas/1.0.0/plugin.schema.json">plugin.schema.json</a></td></tr>
+<tr><td>MCP configuration schema</td><td><a href="https://github.com/agentplugins/agent-plugins-spec/blob/main/schemas/1.0.0/mcp.schema.json">mcp.schema.json</a></td></tr>
+<tr><td>Future considerations</td><td><a href="https://github.com/agentplugins/agent-plugins-spec/blob/main/FUTURE_CONSIDERATIONS.md">FUTURE_CONSIDERATIONS.md</a></td></tr>
+<tr><td>Agent Skills specification</td><td><a href="https://agentskills.io/specification">agentskills.io/specification</a></td></tr>
+<tr><td>Model Context Protocol</td><td><a href="https://modelcontextprotocol.io/specification">modelcontextprotocol.io/specification</a></td></tr>
+<tr><td>Official site</td><td><a href="https://agent-plugins.org/">agent-plugins.org</a></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="pager">
+  <a href="client-implementers.html"><small>Previous</small>← 2 · Implement a client</a>
+  <a href="index.html"><small>Back to</small>Overview →</a>
+</div>
+
+<footer class="page">
+  <p>An unofficial tutorial for the
+  <a href="https://github.com/agentplugins/agent-plugins-spec">Agent Plugins Specification 1.0.0</a>.
+  The specification is the source of truth.</p>
+</footer>
+
+  </main>
+</div>
+<script src="assets/tutorial.js"></script>
+</body>
+</html>
