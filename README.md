@@ -8,17 +8,21 @@ Every rule carries its specification section, for example `§7.2.1`, so any clai
 against the canonical text. Where this tutorial and the specification disagree, the specification
 governs.
 
+**Read it here: https://az9713.github.io/agent-plugins-spec-tutorial/**
+
 ## The pages
 
-| Page | Covers |
+Click any screenshot to open that page.
+
+| | |
 | --- | --- |
-| `index.html` | What the standard is, the smallest valid plugin, how to run the examples. |
-| `plugin-authors.html` | Every `plugin.json` and `mcp.json` key, inside commented JSON. Ten mistakes that break a plugin. |
-| `client-implementers.html` | The six-step loading sequence, the failure-boundary ladder, the expansion algorithm, the conformance checklist. |
-| `reference.html` | Field tables, the complete failure matrix, both schemas, the glossary. |
+| [![Overview](assets/screenshots/index.jpg)](https://az9713.github.io/agent-plugins-spec-tutorial/) | [![Build a plugin](assets/screenshots/plugin-authors.jpg)](https://az9713.github.io/agent-plugins-spec-tutorial/plugin-authors.html) |
+| **[Overview](https://az9713.github.io/agent-plugins-spec-tutorial/)** — what the standard is, the smallest valid plugin, how to run the examples. | **[1 · Build a plugin](https://az9713.github.io/agent-plugins-spec-tutorial/plugin-authors.html)** — every `plugin.json` and `mcp.json` key, inside commented JSON. Ten mistakes that break a plugin. |
+| [![Implement a client](assets/screenshots/client-implementers.jpg)](https://az9713.github.io/agent-plugins-spec-tutorial/client-implementers.html) | [![Reference](assets/screenshots/reference.jpg)](https://az9713.github.io/agent-plugins-spec-tutorial/reference.html) |
+| **[2 · Implement a client](https://az9713.github.io/agent-plugins-spec-tutorial/client-implementers.html)** — the six-step loading sequence, the failure-boundary ladder, the expansion algorithm, the conformance checklist. | **[Reference](https://az9713.github.io/agent-plugins-spec-tutorial/reference.html)** — field tables, the complete failure matrix, both schemas, the glossary. |
 
 The pages are self-contained: no CDN, no external font, no network request. They follow the
-reader's light or dark theme, and carry a manual toggle.
+reader's light or dark theme, and carry a manual toggle. The screenshots show the light theme.
 
 ## The worked example
 
