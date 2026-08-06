@@ -6,7 +6,7 @@
 Repo: https://github.com/az9713/agent-plugins-spec-tutorial (public)
 Site: https://az9713.github.io/agent-plugins-spec-tutorial/ (**live**)
 
-## Current state (as of 2026-08-06, commit `fe3acce`)
+## Current state (as of 2026-08-06, commit `87d36f2`)
 
 Everything is committed and pushed to `main`. Local `HEAD` matches `origin/main`. The working tree is clean.
 
@@ -16,10 +16,12 @@ Done and verified:
   `client-implementers.html`, `reference.html` — plus `implementation.html` (what the code
   contains, and a measured verdict on tutorial-versus-code fidelity: 149 of 165 TypeScript lines are
   verbatim, and every block that claims to be a file is identical) and `e2e-tests.html` (all 59
-  checks explained, the untested parts, and what the passes do and do not prove). Shared `assets/style.css` and `assets/tutorial.js`
-  (theme toggle, syntax highlighting, copy buttons, TOC scrollspy). Verified in a real browser in
-  both themes: 0 px horizontal overflow, 149 highlight tokens in the JSONC block, 0 false comments
-  inside URL strings, all internal links resolve. Landed in `c1e2034`.
+  checks explained, the untested parts, and what the passes do and do not prove; landed in `87d36f2`).
+  All 6 share `assets/style.css` and `assets/tutorial.js` (theme toggle, syntax highlighting, copy
+  buttons, TOC scrollspy), and every nav lists all 6. The 4 tutorial pages were verified in a real
+  browser in both themes: 0 px horizontal overflow, 149 highlight tokens in the JSONC block, 0 false
+  comments inside URL strings (`c1e2034`). All 6 pages pass a well-formedness parse, and all internal
+  links and anchors resolve — 0 broken.
 - **Worked example plugin** `example/changelog-tools/`: all 10 manifest keys, 3 MCP transports,
   a skill with `references/` and `scripts/`, a working stdio MCP server in `bin/notes_server.py`,
   and a `com.example.client/` extension directory.
@@ -34,7 +36,7 @@ Done and verified:
   `success` at about 22:30 UTC on 2026-08-06, after the earlier GitHub Actions outage recovered.
   The three failed runs and the stuck `waiting` run 31126763438 were the outage, not this repo;
   31126763438 was cancelled to free the `pages` concurrency group before the new dispatch.
-- **All 10 live URLs return HTTP 200**: the 4 pages, the 4 screenshot JPEGs, `assets/style.css`,
+- **All 12 live URLs return HTTP 200**: the 6 pages, the 4 screenshot JPEGs, `assets/style.css`,
   and `assets/tutorial.js`. Every destination behind the README screenshot grid is one of those
   4 verified page URLs. The served `index.html` is 11887 bytes and names `e2e.py` twice, which is
   how you confirm the newest content is live and not a cached older deploy.
@@ -44,6 +46,9 @@ Done and verified:
   plan, and speaks MCP to it. Part B compares every code block on the 4 HTML pages with the files
   in `example/`. A mutation test proved it fails when reality drifts: change `${PLUGIN_DATA}` to
   `${PLUGIN_ROOT}` in `mcp.json` and 4 checks turn red and the exit code becomes 1.
+  **Part B scans the 4 tutorial pages only.** `implementation.html` and `e2e-tests.html` are outside
+  it, on purpose — adding them changes the count that `e2e-tests.html` documents. To cover them
+  later, add both names to `PAGES` in `example/e2e.py` and update the count on that page.
 
 **Deploy trap, learned the hard way.** `pages.yml` also triggers `on: push`. Three pushes in a row
 queued three runs, and the run that finished last deployed the *oldest* of the three commits. The
@@ -61,21 +66,22 @@ Possible follow-ups, in the order of value. None is started:
    against the field tables in `reference.html` and the rules in the other 3 pages.
 2. Run `example/e2e.py` in CI. It already exits non-zero on a failure, so a small workflow that
    calls it turns doc drift into a red build. `.github/workflows/pages.yml` deploys but does not test.
-3. Add dark-theme screenshots. `assets/screenshots/` holds light-theme images only.
+3. Add dark-theme screenshots. `assets/screenshots/` holds light-theme images only. There is also
+   no screenshot for the 2 new pages.
 
 Re-deploy at any time with `gh workflow run pages.yml -R az9713/agent-plugins-spec-tutorial`.
 After a deploy, verify with:
 
 ```
 B=https://az9713.github.io/agent-plugins-spec-tutorial
-for u in "" plugin-authors.html client-implementers.html reference.html \
+for u in "" plugin-authors.html client-implementers.html reference.html          implementation.html e2e-tests.html \
          assets/screenshots/index.jpg assets/screenshots/plugin-authors.jpg \
          assets/screenshots/client-implementers.jpg assets/screenshots/reference.jpg; do
   curl -sL -o /dev/null -w "$u %{http_code}\n" "$B/$u"
 done
 ```
 
-All 8 must return 200.
+All 10 must return 200.
 
 ## Where to read things
 
