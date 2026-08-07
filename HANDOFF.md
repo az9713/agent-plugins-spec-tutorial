@@ -15,6 +15,11 @@ run 31134457291.
 
 Done and verified:
 
+- **`index.html` links every other page twice**: from the nav, and from the body — three cards for
+  the tutorial pages, then a second `.cards` group for `implementation.html` and `e2e-tests.html`,
+  plus a row each in the "How to read this tutorial" table. Keep the two card groups separate.
+  The grid is `repeat(auto-fit, minmax(250px, 1fr))` (`assets/style.css:374`), so a single group of
+  5 cards wraps 4 + 1 and looks broken.
 - **6 HTML pages.** 4 tutorial pages, self-contained, no CDN: `index.html`, `plugin-authors.html`,
   `client-implementers.html`, `reference.html` — plus `implementation.html` (what the code
   contains, and a measured verdict on tutorial-versus-code fidelity: 149 of 165 TypeScript lines are
@@ -51,12 +56,16 @@ Done and verified:
   and `assets/tutorial.js`. All 14 returned 200 as of the last verified deploy. The 2 newest JPEGs,
   `implementation.jpg` and `e2e-tests.jpg`, only serve once their commit is pushed and deployed —
   re-run the loop below after any push. Every destination behind the README screenshot grid is one
-  of the 6 page URLs. The served `index.html` is 11987 bytes, which equals
-  `git cat-file -s HEAD:index.html`, and it links `implementation.html` and `e2e-tests.html`.
-  That byte match is how you confirm the newest content is live and not a cached older deploy.
-  A Windows working copy shows 12234 bytes for the same file, because the checkout uses CRLF
-  and the 247 extra bytes are the 247 carriage returns. Compare the git blob size, not the file
-  on disk.
+  of the 6 page URLs. To confirm the newest content is live and not a cached older deploy, compare
+  the served byte count with the git blob, which must be equal:
+
+  ```bash
+  echo "served=$(curl -sL https://az9713.github.io/agent-plugins-spec-tutorial/ | wc -c) \
+        blob=$(git cat-file -s HEAD:index.html)"
+  ```
+
+  Do **not** compare against the file on disk. A Windows checkout uses CRLF, so `wc -c index.html`
+  reports one extra byte per line — 247 more than the blob, at 247 lines. Compare the git blob size.
 - **`example/e2e.py` — the end-to-end demonstration. 59 checks, exit code 0.** Landed in `fe3acce`.
   Run it with `python example/e2e.py` (add `--quiet` to hide the MCP transcript). Part A loads the
   plugin with the reference client, launches `bin/notes_server.py` from the client's own launch

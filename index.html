@@ -58,6 +58,22 @@ through one worked example, at the level of the individual key.</p>
   </a>
 </div>
 
+<p>Those three pages teach the specification. The next two document this tutorial's own code, so you
+can check it rather than trust it.</p>
+
+<div class="cards">
+  <a class="card" href="implementation.html">
+    <h3>The implementations</h3>
+    <p>What the worked plugin and both reference clients actually contain, and a measured verdict on
+    whether the code printed in the tutorial is the code that runs.</p>
+  </a>
+  <a class="card" href="e2e-tests.html">
+    <h3>The 59 checks</h3>
+    <p>Every check in <code>example/e2e.py</code> explained, what is deliberately left untested, and
+    what 59 passes do and do not prove.</p>
+  </a>
+</div>
+
 <h2 id="what">What the standard actually is</h2>
 
 <p>A plugin is <strong>one directory</strong>. The directory holds one manifest file and optional components.
@@ -200,6 +216,8 @@ rule of the specification in action <span class="sec">§7.2.2</span>.</p>
 <tr><td>Packaging skills or an MCP server for other people</td><td><a href="plugin-authors.html">Tutorial 1</a></td><td>Copy <code>example/changelog-tools/</code> and edit it.</td></tr>
 <tr><td>Building an agent, an IDE, or a CLI that loads plugins</td><td><a href="client-implementers.html">Tutorial 2</a></td><td>Port <code>example/client/loader.ts</code>.</td></tr>
 <tr><td>Checking one rule quickly</td><td><a href="reference.html">Reference</a></td><td>Use the field tables and the failure matrix.</td></tr>
+<tr><td>Wondering whether the example code is real</td><td><a href="implementation.html">The implementations</a></td><td>Read the fidelity verdict, then open the files in <code>example/</code>.</td></tr>
+<tr><td>Wondering what the tests actually prove</td><td><a href="e2e-tests.html">The 59 checks</a></td><td>Run <code>python example/e2e.py</code> yourself.</td></tr>
 </tbody>
 </table>
 </div>
