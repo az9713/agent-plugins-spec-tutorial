@@ -6,10 +6,12 @@
 Repo: https://github.com/az9713/agent-plugins-spec-tutorial (public)
 Site: https://az9713.github.io/agent-plugins-spec-tutorial/ (**live**)
 
-## Current state (as of 2026-08-06, content commit `05f25e7`)
+## Current state (as of 2026-08-07)
 
-Everything is committed and pushed to `main`. Local `HEAD` matches `origin/main`, and the deployed
-commit matches both. The working tree is clean. Nothing is in flight.
+The invariant to restore after any change: local `HEAD` = `origin/main` = the newest deployment sha,
+and a clean working tree. Do not trust this file's word for it — run the two checks at the end of
+the next section. `HEAD` was last confirmed equal to the deployed commit at `6d899ba`, delivered by
+run 31134457291.
 
 Done and verified:
 
@@ -30,17 +32,31 @@ Done and verified:
   `example/client/loader.ts` (484 lines, strict TS) and `example/client/loader.py` (357 lines).
   Both self-checks pass. Both produce the same launch plan for the example, including the report
   line `server legacy-feed skipped: transport sse is unsupported`.
-- **4 light-theme screenshots** in `assets/screenshots/`, wired into `README.md` as a clickable
-  2x2 grid. The images serve correctly (HTTP 200 from `raw.githubusercontent.com`). Landed in `b9ccf92`.
+- **6 light-theme screenshots** in `assets/screenshots/`, one per page, wired into `README.md` as a
+  clickable 3x2 grid. All 6 are 1568x709 JPEG. The original 4 landed in `b9ccf92` but went stale when
+  `87d36f2` added 2 pages to every nav, so all 6 were re-shot together against the live site.
+  Recipe, if they need shooting again: chrome-devtools `new_page` with an isolated context,
+  `emulate` `colorScheme: light` and viewport `1568x709x1`, **then reload** — the theme toggle paints
+  its label once at load (`assets/tutorial.js:17`), so a page loaded before the emulation shows
+  "Light" on a light page. Confirm with `evaluate_script` that the label reads `Dark` and
+  `prefersDark` is `false` before capturing. `take_screenshot` writes `.jpeg`; rename to `.jpg`.
+- **Every link in `README.md` is absolute.** Relative links such as `](implementation.html)` open the
+  raw HTML source on github.com instead of the page. Only the 6 screenshot images stay repo-relative,
+  which is required for them to render.
 
-- **The site is deployed and live.** Run 31129025363 (`Deploy tutorial to GitHub Pages`) finished
-  `success` at about 22:30 UTC on 2026-08-06, after the earlier GitHub Actions outage recovered.
-  The three failed runs and the stuck `waiting` run 31126763438 were the outage, not this repo;
-  31126763438 was cancelled to free the `pages` concurrency group before the new dispatch.
-- **All 12 live URLs return HTTP 200**: the 6 pages, the 4 screenshot JPEGs, `assets/style.css`,
-  and `assets/tutorial.js`. Every destination behind the README screenshot grid is one of those
-  4 verified page URLs. The served `index.html` is 11887 bytes and names `e2e.py` twice, which is
-  how you confirm the newest content is live and not a cached older deploy.
+- **The site is deployed and live.** The newest run is 31134457291 (`workflow_dispatch`), which
+  finished `success` at 00:23 UTC on 2026-08-07 for commit `6d899ba`. Earlier failed runs and the
+  stuck `waiting` run 31126763438 were the GitHub Actions outage, not this repo.
+- **The live URL check covers 14 things**: the 6 pages, the 6 screenshot JPEGs, `assets/style.css`,
+  and `assets/tutorial.js`. All 14 returned 200 as of the last verified deploy. The 2 newest JPEGs,
+  `implementation.jpg` and `e2e-tests.jpg`, only serve once their commit is pushed and deployed —
+  re-run the loop below after any push. Every destination behind the README screenshot grid is one
+  of the 6 page URLs. The served `index.html` is 11987 bytes, which equals
+  `git cat-file -s HEAD:index.html`, and it links `implementation.html` and `e2e-tests.html`.
+  That byte match is how you confirm the newest content is live and not a cached older deploy.
+  A Windows working copy shows 12234 bytes for the same file, because the checkout uses CRLF
+  and the 247 extra bytes are the 247 carriage returns. Compare the git blob size, not the file
+  on disk.
 - **`example/e2e.py` — the end-to-end demonstration. 59 checks, exit code 0.** Landed in `fe3acce`.
   Run it with `python example/e2e.py` (add `--quiet` to hide the MCP transcript). Part A loads the
   plugin with the reference client, launches `bin/notes_server.py` from the client's own launch
@@ -67,8 +83,8 @@ Possible follow-ups, in the order of value. None is started:
    against the field tables in `reference.html` and the rules in the other 3 pages.
 2. Run `example/e2e.py` in CI. It already exits non-zero on a failure, so a small workflow that
    calls it turns doc drift into a red build. `.github/workflows/pages.yml` deploys but does not test.
-3. Add dark-theme screenshots. `assets/screenshots/` holds light-theme images only. There is also
-   no screenshot for the 2 new pages.
+3. Add dark-theme screenshots. `assets/screenshots/` holds light-theme images only. All 6 pages now
+   have one, so only the dark variant is missing.
 
 Re-deploy at any time with `gh workflow run pages.yml -R az9713/agent-plugins-spec-tutorial`.
 After a deploy, run these two checks in order. The second one is the important one.
@@ -78,12 +94,13 @@ After a deploy, run these two checks in order. The second one is the important o
 echo "HEAD=$(git rev-parse --short HEAD) deployed=$(gh api \
   repos/az9713/agent-plugins-spec-tutorial/deployments --jq '.[0].sha[0:7]')"
 
-# 2. All 12 URLs must return 200.
+# 2. All 14 URLs must return 200.
 B=https://az9713.github.io/agent-plugins-spec-tutorial
 for u in "" plugin-authors.html client-implementers.html reference.html \
          implementation.html e2e-tests.html \
          assets/screenshots/index.jpg assets/screenshots/plugin-authors.jpg \
          assets/screenshots/client-implementers.jpg assets/screenshots/reference.jpg \
+         assets/screenshots/implementation.jpg assets/screenshots/e2e-tests.jpg \
          assets/style.css assets/tutorial.js; do
   curl -sL -o /dev/null -w "$u %{http_code}\n" "$B/$u"
 done
