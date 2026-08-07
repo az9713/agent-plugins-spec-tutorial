@@ -10,8 +10,9 @@ Site: https://az9713.github.io/agent-plugins-spec-tutorial/ (**live**)
 
 The invariant to restore after any change: local `HEAD` = `origin/main` = the newest deployment sha,
 and a clean working tree. Do not trust this file's word for it — run the two checks at the end of
-the next section. `HEAD` was last confirmed equal to the deployed commit at `6d899ba`, delivered by
-run 31134457291.
+the next section. `HEAD` was last confirmed equal to the deployed commit at `f0cbb5f`, delivered by
+run 31138409010, with all 14 URLs at 200 and each of the 6 screenshots serving a byte count equal to
+its git blob.
 
 Done and verified:
 
